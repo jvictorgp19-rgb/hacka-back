@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.contrato import router
 from app.core.config import get_settings
 from app.core.limites import LimiteDeCorpo
-from app.services import audit_log
+from app.services import audit_log, persistencia
 from app.services.acervo import get_acervo
 from app.services.agent.router import get_indice
 from app.services.grafo import get_grafo
@@ -23,8 +23,9 @@ async def lifespan(_: FastAPI):
     cfg = get_settings()
     acervo = get_acervo()  # carrega o Silver (ou ingere os PDFs do manifesto)
     get_indice()
-    get_grafo()
+    grafo = get_grafo()
     banco = audit_log.preparar()  # DATABASE_URL insegura impede o startup
+    persistencia.sincronizar_em_segundo_plano(acervo, grafo)  # espelho no banco
     for item in acervo.quarentena:
         log.warning("Documento em quarentena: %s (%s)", item["documento"], item["motivo"])
     log.info("Acervo: %d documentos, %d trechos. LLM %s. AUTH_MODE=%s. Auditoria: %s.",

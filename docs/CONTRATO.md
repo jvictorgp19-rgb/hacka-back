@@ -117,7 +117,9 @@ os trechos enviados; sem citação válida, o back devolve os trechos em modo ex
   do manifesto. Upload e conectores são escopo do João.
 - Busca só lexical (BM25). Embeddings ficaram fora: enviar o acervo a um serviço de embeddings
   exige decidir antes onde a VM fica (LGPD art. 33).
-- A auditoria fica no Neon (PostgreSQL), gravada em segundo plano por um papel que só tem
-  `INSERT`. Ela ainda não é inviolável: quem é dono do banco pode alterar registros. Configuração
-  no README, seção "Banco (Neon)".
+- O Neon (PostgreSQL) guarda a auditoria e um espelho de todo o conteúdo do sistema
+  (documentos, trechos, regras, relações, conteúdo curado). As rotas continuam lendo dos arquivos.
+  A auditoria é gravada em segundo plano por um papel que só tem `INSERT` nela. Ela ainda não é
+  inviolável: quem é dono do banco pode alterar registros. Configuração no README, seção
+  "Banco (Neon)".
 - Riscos e mitigações completos: `docs/SEGURANCA_REVISAO_CODEX.md`.

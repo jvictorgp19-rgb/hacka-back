@@ -151,6 +151,11 @@ class Grafo:
         return GrafoResponse(nos=list(nos.values()), arestas=arestas)
 
     # ---------- consultas pontuais (o chat/RAG não usa o grafo) ----------
+    def relacoes(self) -> list[dict]:
+        """Grafo completo, para o espelho no banco. NUNCA devolver isto a um cliente da API."""
+        return [{"origem": a.origem, "alvo": a.alvo, "tipo": a.tipo, "itens": list(a.itens),
+                 "nivel": self._docs[a.origem].nivel} for a in self._arestas]
+
     def versao_anterior(self, codigo: str, nivel: str) -> tuple[Documento, Documento] | None:
         """(vigente, anterior) quando as DUAS versões são visíveis para o nível."""
         for a in self._arestas:

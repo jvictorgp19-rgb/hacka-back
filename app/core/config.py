@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     # Neon (PostgreSQL); vazio = SQLite local, só testes/offline. Segredos fora do repr.
     database_url: str = Field(default="", repr=False)
+    # Base dos links "ver no repositório" gravados no banco para cada arquivo do acervo.
+    acervo_repo_url: str = "https://github.com/jvictorgp19-rgb/hacka-back/blob/main"
 
     auth_mode: Literal["demo", "token"] = "demo"  # valor desconhecido derruba o startup
     auth_token_secret: str = Field(default="", repr=False)

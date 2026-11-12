@@ -83,32 +83,62 @@ sem TLS só é aceito para `localhost` (túnel SSH), salvo `LLM_ALLOW_HTTP=true`
 
 ## Banco (Neon)
 
-A trilha de auditoria (LGPD art. 37) fica no [Neon](https://neon.tech), que é PostgreSQL. Sem
-`DATABASE_URL`, o back usa um SQLite local, só para testes e para rodar offline. Com
+O banco é o [Neon](https://neon.tech), que é PostgreSQL. Ele guarda duas coisas:
+
+- **Trilha de auditoria** (LGPD art. 37): quem perguntou, o tipo de pergunta, as fontes e o nível
+  de acesso. A pergunta em si não é guardada.
+- **Espelho de todo o conteúdo do sistema** (`app/services/persistencia.py`), gravado no startup
+  e refeito só quando algo muda:
+
+  | Tabela | Conteúdo |
+  |---|---|
+  | `acervo_documento` | Um registro por arquivo: código, versão, título, tema, área dona, nível, vigência, cabeçalho, `sha256`, link no repositório e texto completo do PDF |
+  | `acervo_trecho` | Os trechos por item numerado, com nível e vigência |
+  | `acervo_regra` | Os parâmetros das calculadoras, com documento e item de origem. Exemplo: pedir férias com 45 dias de antecedência (NG_111 4.5.1) |
+  | `acervo_relacao` | As relações do grafo: substitui, vinculado_a, referencia |
+  | `acervo_curado` | O conteúdo curado do front (taxonomia, alçadas, jornadas por tema) |
+  | `acervo_ingestao` · `acervo_quarentena` | Cada execução, com contagens, e os arquivos recusados |
+  | `sistema_persona` · `sistema_pedido_acesso` | Personas da demo e pedidos de acesso |
+
+  O chat, a busca e o grafo da API continuam lendo dos arquivos: o banco é cópia, não a fonte.
+  Toda linha com conteúdo do acervo tem a coluna `nivel`. Quem ler essas tabelas para mostrar
+  algo a alguém precisa filtrar por ela.
+
+Sem `DATABASE_URL`, o back usa um SQLite local, só para testes e para rodar offline. Com
 `APP_ENV=production`, a `DATABASE_URL` é obrigatória e o SQLite é recusado.
 
 1. Crie o projeto no Neon na região **São Paulo (AWS sa-east-1)**. Um banco fora do Brasil é
    transferência internacional de dados (LGPD art. 33). Em produção, a API avisa no log quando o
    host não é de `sa-east-1`. A região efetiva deve ser conferida no console.
-2. Com o papel dono do banco, crie um papel só para a aplicação:
+2. Com o papel dono do banco, crie por SQL um papel só para a aplicação. Papel criado pelo console
+   ou pelo CLI entra no `neon_superuser` e teria acesso demais.
 
    ```sql
    CREATE ROLE raiz_app LOGIN PASSWORD '<senha forte>';
    GRANT USAGE ON SCHEMA public TO raiz_app;
    ```
 
-3. Crie a tabela uma vez, com a connection string do **dono**. Ela não vai para o `.env` da
+3. Crie as tabelas uma vez, com a connection string do **dono**. Ela não vai para o `.env` da
    aplicação:
 
    ```bash
-   DATABASE_URL='postgresql://<dono>:<senha>@<endpoint>.sa-east-1.aws.neon.tech/neondb?sslmode=require'      python -m app.services.audit_log
+   export DATABASE_URL='postgresql://<dono>:<senha>@<endpoint>.sa-east-1.aws.neon.tech/neondb?sslmode=require'
+   python -m app.services.audit_log      # tabela auditoria
+   python -m app.services.persistencia   # tabelas do espelho, já preenchidas
    ```
 
-4. Libere só a escrita para a aplicação. Não conceda `SELECT`, `UPDATE`, `DELETE` nem `CREATE`:
+4. Libere para a aplicação só o necessário. Não conceda `UPDATE` nem `CREATE`, nem `SELECT` na
+   auditoria:
 
    ```sql
    GRANT INSERT ON auditoria TO raiz_app;
    GRANT USAGE ON SEQUENCE auditoria_id_seq TO raiz_app;
+   -- espelho: refeito por inteiro (apaga e grava), e confere a última execução
+   GRANT SELECT, INSERT, DELETE ON acervo_documento, acervo_trecho, acervo_relacao, acervo_regra,
+     acervo_curado, acervo_ingestao, acervo_quarentena, sistema_persona, sistema_pedido_acesso
+     TO raiz_app;
+   GRANT USAGE ON SEQUENCE acervo_trecho_id_seq, acervo_relacao_id_seq, acervo_ingestao_id_seq,
+     acervo_quarentena_id_seq TO raiz_app;
    ```
 
 5. No `.env` da aplicação, cole a connection string do `raiz_app` como o console entrega.
@@ -118,6 +148,8 @@ A trilha de auditoria (LGPD art. 37) fica no [Neon](https://neon.tech), que é P
    DATABASE_URL=postgresql://raiz_app:<senha>@<endpoint>-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
    APP_ENV=production
    ```
+
+Os links de cada arquivo usam `ACERVO_REPO_URL`. O padrão é o `blob/main` deste repositório.
 
 ### Regras da conexão
 
@@ -129,10 +161,10 @@ A trilha de auditoria (LGPD art. 37) fica no [Neon](https://neon.tech), que é P
   `PGHOST`, `PGHOSTADDR`, `PGSERVICE` e `PGSERVICEFILE` também são recusadas.
 - **Sem segredo em log.** Logs e erros nunca mostram usuário, senha nem host. As `Settings`
   escondem `DATABASE_URL`, `LLM_API_KEY` e `AUTH_TOKEN_SECRET` no `repr`.
-- **Tempo limite.** Cada gravação tem `statement_timeout` de 5 s e `lock_timeout` de 2 s, com
-  keepalive TCP.
+- **Tempo limite.** Cada gravação da auditoria tem `statement_timeout` de 5 s e `lock_timeout`
+  de 2 s; a do espelho, 60 s e 5 s. As duas usam keepalive TCP.
 
-### Gravação
+### Gravação da auditoria
 
 - **Em segundo plano.** A resposta não espera o banco, porque o Neon hiberna e a primeira
   conexão depois disso demora.
