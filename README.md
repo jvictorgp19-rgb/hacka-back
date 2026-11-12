@@ -185,12 +185,3 @@ collected 30 items
 tests/eval/test_benchmark_30.py::test_01_ferias_05_05_2027_timeline_exata PASSED
 ...
 tests/eval/test_benchmark_30.py::test_30_fluxo_rbac_resposta_curada_e_relatorio_pptx PASSED
-============================== 30 passed in 2.00s ==============================
-```
-
----
-
-<p align="center">
-  <strong>Equipe Ctrl + Alt + Business</strong> • Hackathon HUBB/TS — Desafio 2<br/>
-  <em>⚖️ Em caso de divergência, prevalece o documento oficial.</em>
-</p>
