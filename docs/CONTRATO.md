@@ -17,6 +17,7 @@ Os formatos abaixo espelham os tipos TypeScript do `hacka-front`, branch `lana`
 | `POST /reports` | `{tema, personaId}` | `{tituloDeck, subtitulo, geradoEm, slides[]}` |
 | `GET /reports/pptx?tema=` | — | arquivo `.pptx` |
 | `GET /ingest?hoje=` | — | `IngestAuditFinding[]` |
+| `GET /grafo?tema=` | `tema` opcional | `{nos[], arestas[]}`: mapa do acervo no nível de quem consulta (extra; ver `docs/METODOLOGIA_GRAFO.md`) |
 | `GET /health` | — | `{"status": "ok"}` |
 
 `ChatResponse`:
@@ -77,6 +78,10 @@ Use só com o acervo sintético. Com dados reais, use `AUTH_MODE=token` atrás d
 - Calculadoras, radar e relatórios declaram as fontes e passam pela mesma checagem.
 - `rbacBlock` revela só a **área dona** de conteúdo Restrito. Documento Sigiloso não tem a
   existência revelada.
+- **Exceção aceita (GRAFO-21):** para conteúdo Restrito, o chat confirma que existe algo acima do
+  nível da pessoa e diz qual área cuida do pedido de acesso. É de propósito: é o passo 7 da demo
+  (pedir acesso). Nenhuma outra rota faz isso. O `/grafo` trata documento invisível como
+  inexistente.
 - Não há cache de respostas. Toda resposta sai com `Cache-Control: private, no-store`.
 
 ## LLM local
@@ -102,6 +107,7 @@ os trechos enviados; sem citação válida, o back devolve os trechos em modo ex
 | Tamanho da mensagem | 2.000 caracteres (`422`) | `MAX_MESSAGE_CHARS` |
 | Chat | 30 por minuto por persona e IP (`429`) | `RATE_CHAT_PER_MIN` |
 | Relatórios | 3 por minuto (`429`) | `RATE_REPORTS_PER_MIN` |
+| Grafo | 30 por minuto (`429`) | `RATE_GRAFO_PER_MIN` |
 
 ## Pendências conhecidas (fora deste escopo)
 
