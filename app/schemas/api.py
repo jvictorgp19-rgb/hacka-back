@@ -132,3 +132,30 @@ class IngestAuditFinding(BaseModel):
     documentosEnvolvidos: list[str]
     descricao: str
     acaoRecomendada: str
+
+
+# ---------- /grafo ----------
+class GrafoNo(BaseModel):
+    id: str
+    tipo: Literal["documento", "referencia", "dominio"]
+    rotulo: str
+    codigo: str | None = None
+    versao: str | None = None
+    titulo: str | None = None
+    categoria: str | None = None
+    tema: str | None = None
+    dominio: str | None = None
+    nivel: Nivel | None = None
+    vigente: bool | None = None
+
+
+class GrafoAresta(BaseModel):
+    origem: str
+    destino: str
+    tipo: Literal["substitui", "vinculado_a", "referencia", "pertence_a"]
+    itens: list[str]
+
+
+class GrafoResponse(BaseModel):
+    nos: list[GrafoNo]
+    arestas: list[GrafoAresta]

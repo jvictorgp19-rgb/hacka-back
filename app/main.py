@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.limites import LimiteDeCorpo
 from app.services.acervo import get_acervo
 from app.services.agent.router import get_indice
+from app.services.grafo import get_grafo
 from app.services.llm.client import get_llm
 
 log = logging.getLogger("raiz")
@@ -21,6 +22,7 @@ async def lifespan(_: FastAPI):
     cfg = get_settings()
     acervo = get_acervo()  # carrega o Silver (ou ingere os PDFs do manifesto)
     get_indice()
+    get_grafo()
     for item in acervo.quarentena:
         log.warning("Documento em quarentena: %s (%s)", item["documento"], item["motivo"])
     log.info("Acervo: %d documentos, %d trechos. LLM %s. AUTH_MODE=%s.",

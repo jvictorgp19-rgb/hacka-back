@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,7 +16,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     database_url: str = "sqlite:///./data/app.db"
 
-    auth_mode: str = "demo"  # demo | token
+    auth_mode: Literal["demo", "token"] = "demo"  # valor desconhecido derruba o startup
     auth_token_secret: str = ""
     auth_token_ttl_min: int = 30
     demo_default_persona: str = ""
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
     max_body_bytes: int = 16384
     rate_chat_per_min: int = 30
     rate_reports_per_min: int = 3
+    rate_grafo_per_min: int = 30
 
     @property
     def origens_cors(self) -> list[str]:

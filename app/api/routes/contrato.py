@@ -5,6 +5,7 @@ Respostas levam Cache-Control: no-store, porque dependem de quem pergunta.
 """
 
 from datetime import date
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -17,6 +18,7 @@ from app.schemas.api import (
     ChatRequest,
     ChatResponse,
     DocsResponse,
+    GrafoResponse,
     IngestAuditFinding,
     RadarEvent,
     ReportRequest,
@@ -27,6 +29,7 @@ from app.services import audit_log, reports
 from app.services.access import listar_pedidos
 from app.services.acervo import get_acervo
 from app.services.agent.router import responder
+from app.services.grafo import get_grafo
 from app.services.ingest_audit import auditar
 from app.services.radar import montar_radar
 
@@ -66,6 +69,21 @@ def docs(sujeito: SujeitoDep, response: Response,
         taxonomia=seed["norma_mestra_taxonomia"] if visiveis else {},
         temaFiltro=tema or "todos",
     )
+
+
+@lru_cache(maxsize=32)
+def _projecao(nivel: str, tema: str | None) -> GrafoResponse:
+    """A projeção depende só de nível e tema (ambos de conjunto fechado): cache pequeno."""
+    return get_grafo().projetar(nivel, tema)
+
+
+@router.get("/grafo", response_model=GrafoResponse, response_model_exclude_none=True)
+def grafo(sujeito: SujeitoDep, request: Request, response: Response,
+          tema: Tema | None = None) -> GrafoResponse:
+    """Mapa do acervo: documentos, versões e relações, na visão do nível de quem consulta."""
+    checar_taxa(request, sujeito.id, "grafo", get_settings().rate_grafo_per_min)
+    _sem_cache(response)
+    return _projecao(sujeito.nivel, tema)
 
 
 @router.get("/radar", response_model=list[RadarEvent])
