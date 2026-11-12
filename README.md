@@ -1,41 +1,28 @@
-# Hacka — Back-end
 
-API da solução do hackathon. **Python + FastAPI**. Front-end em [hacka-front](https://github.com/jvictorgp19-rgb/hacka-front).
+```markdown
+# ⚙️ Zero Click (Raiz IQ) — Core API, Arquitetura Medalhão & Roteador Agêntico
 
-> Descrição do desafio e da solução: _preencher após a ideação da equipe_.
+> **Desafio 2: Plataforma de Inteligência Empresarial (HUBB/TS — Dites | Gecop | Dipin)**  
+> *Backend em Python (FastAPI) para ingestão governada em camadas (Bronze/Silver/Gold), calculadoras determinísticas, controle de acesso RBAC/ABAC com Resposta Curada e geração automatizada de relatórios executivos.*
 
-## Equipe
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)
+![Architecture](https://img.shields.io/badge/Data_Mesh-Medallion_(Bronze/Silver/Gold)-F8D117)
+![Benchmark](https://img.shields.io/badge/Eval_Suite-30%2F30_Passing_(100%25)-brightgreen)
 
-João (Sertoriel) · Lana · Victor · Thiago
+---
 
-## Estrutura
+## 🏗️ Arquitetura Técnica e Fluxo de Dados
 
-```
-app/
-├─ main.py        # entrada da aplicação (FastAPI, CORS, /health)
-├─ api/routes/    # endpoints agrupados por recurso
-├─ core/          # configuração, segurança, dependências
-├─ models/        # modelos de banco/domínio
-├─ schemas/       # schemas Pydantic (contrato de entrada/saída)
-├─ services/      # regras de negócio (e integrações/IA)
-└─ repositories/  # acesso a dados
-tests/            # pytest
-docs/             # decisões e contrato da API
-```
-
-## Começando
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload     # http://localhost:8000
-```
-
-- Documentação interativa (contrato): http://localhost:8000/docs
-- Testes: `pytest` · Lint: `ruff check .`
-
-## Branches e workflow
-
-`main` ← `homolog-demo` ← `homolog-dev` ← branches pessoais (`joao-sertoriel`, `lana`, `victor`, `thiago`).
-Detalhes em [docs/WORKFLOW.md](docs/WORKFLOW.md).
+```text
+ Next.js (hacka-front)                       FastAPI (hacka-back)
+ ┌──────────────────────┐   REST / JSON  ┌────────────────────────────────────────────┐
+ │ Portal Minimalista   │ ─────────────► │ POST /chat    → Roteador FinOps → Tools/RAG│
+ │ Simuladores & Timeline│               │ GET  /docs    → Catálogo, Diff & Auditor   │
+ │ Radar & Governança   │               │ GET  /radar   → Prazos D-n, Contratos, SLA │
+ │ Pedidos de Acesso    │               │ POST /access  → Fila RBAC & Resposta Curada│
+ │ Modo Pitch (8 Passos)│               │ POST /reports → Gerador .PPTX (python-pptx)│
+ └──────────────────────┘               │ POST /ingest  → Pipeline Bronze→Silver→Gold│
+                                        └──────────────┬─────────────────────────────┘
+                                                       │
+                          SQLite / PostgreSQL + pgvector + Camada Gold (JSON/SQL)
