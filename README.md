@@ -1,39 +1,139 @@
-# Hacka — Back-end
+# Hacka — Back-end (Raiz IQ / Zero Click)
 
-API da solução do hackathon. **Python + FastAPI**. Front-end em [hacka-front](https://github.com/jvictorgp19-rgb/hacka-front).
+API da solução do hackathon, **Desafio 2 — Plataforma de Inteligência Empresarial**.
+**Python + FastAPI**. Front-end em [hacka-front](https://github.com/jvictorgp19-rgb/hacka-front).
 
-> Descrição do desafio e da solução: _preencher após a ideação da equipe_.
+O Raiz IQ é um copiloto sobre as normas internas da empresa: férias, programa de inovação e
+contrato de locação de coworking. Ele responde com citação de documento, item e versão. Também
+calcula prazos e alçadas sem LLM, avisa quando uma regra foi revogada e se abstém quando o acervo
+não cobre a pergunta. Por fim, respeita o nível de acesso de quem pergunta.
+
+> O acervo é **sintético**: "A ACME Tecnologia e Serviços é uma empresa fictícia". O modo
+> `AUTH_MODE=demo` é uma simulação de controle de acesso e só deve rodar com esses dados.
 
 ## Equipe
 
 João (Sertoriel) · Lana · Victor · Thiago
 
+## Começando
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --reload      # http://localhost:8000
+```
+
+- Swagger: http://localhost:8000/swagger. O caminho `/docs` é uma rota do contrato: o catálogo do
+  acervo.
+- Saúde: http://localhost:8000/health.
+- No primeiro start, a API lê os PDFs de `acervo/bronze/` e grava o cache em `data/silver.json`.
+
+Teste rápido, como a persona Ana (nível Interna):
+
+```bash
+curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
+  -d '{"message": "Quero férias a partir de 05/05/2027. Até quando peço?", "tema": "ferias", "personaId": "ana"}'
+```
+
+## Rotas
+
+| Rota | O que faz |
+|---|---|
+| `POST /chat` | Responde perguntas com calculadora, alerta de regra revogada, abstenção honesta ou busca + LLM |
+| `GET /docs?tema=` | Catálogo do acervo visível para a persona |
+| `GET /radar?hoje=` | Prazos que vencem (férias, contrato), com criticidade |
+| `GET /access` | Pedidos de acesso (stub de leitura) |
+| `POST /reports` · `GET /reports/pptx` | Deck executivo em JSON ou `.pptx`, com citações nas notas |
+| `GET /ingest?hoje=` | Auditoria do acervo: anacronismos, referências ausentes, conflito de vigência |
+| `GET /grafo?tema=` | Mapa do acervo: documentos, versões e relações no nível de quem consulta |
+
+Formatos, identidade, limites e ajustes pedidos ao front: [docs/CONTRATO.md](docs/CONTRATO.md).
+
+## Identidade e acesso
+
+O nível de acesso nunca vem do cliente. O cliente informa só o id da persona; o servidor sabe o
+papel e o nível (`app/core/personas.py`).
+
+| Persona | Nível |
+|---|---|
+| `ana`, `carlos`, `marina` | Interna |
+| `rafael` | Restrita |
+| `diretora_diraf`, `curadora_ggc` | Sigilosa |
+
+- `AUTH_MODE=demo` (padrão): `personaId` no body, header `X-Persona-Id` ou query `?personaId=`.
+  Sem persona válida, só o nível Pública: listas vazias.
+- `AUTH_MODE=token`: exige `Authorization: Bearer <token>`. Para emitir:
+  `python -m app.core.auth <personaId>` (precisa de `AUTH_TOKEN_SECRET` com 32+ caracteres).
+
+## LLM local
+
+O back fala com qualquer servidor compatível com a API da OpenAI (vLLM, Ollama, LM Studio).
+Preencha no `.env`:
+
+```
+LLM_BASE_URL=https://<vm>/v1
+LLM_API_KEY=<chave>
+LLM_MODEL=<nome do modelo>
+```
+
+Sem essas variáveis, o chat responde com calculadoras e trechos citados (modo extrativo). HTTP
+sem TLS só é aceito para `localhost` (túnel SSH), salvo `LLM_ALLOW_HTTP=true`.
+
+## Testes e avaliação
+
+```bash
+ruff check .
+pytest
+python -m tests.eval.run_eval          # 33 perguntas com gabarito, sem LLM
+python -m tests.eval.run_eval --llm    # mesmo banco, com o LLM configurado no .env
+```
+
+A avaliação mede acerto, citação correta e abstenção/bloqueio corretos.
+
+## Acervo
+
+- `acervo/bronze/`: PDFs do desafio.
+- `app/seed/manifesto.json`: lista curada com hash, tema, área dona e classificação mínima de
+  cada PDF. PDF fora do manifesto ou com hash diferente vai para quarentena. Para regerar depois
+  de mudar o acervo, rode `python scripts/gerar_manifesto.py`.
+- Ingestão manual: `python -m app.services.ingest.pipeline`.
+- Reclassificou um documento? Reinicie a API: acervo, índice e grafo ficam em memória.
+
 ## Estrutura
 
 ```
 app/
-├─ main.py        # entrada da aplicação (FastAPI, CORS, /health)
-├─ api/routes/    # endpoints agrupados por recurso
-├─ core/          # configuração, segurança, dependências
-├─ models/        # modelos de banco/domínio
-├─ schemas/       # schemas Pydantic (contrato de entrada/saída)
-├─ services/      # regras de negócio (e integrações/IA)
-└─ repositories/  # acesso a dados
-tests/            # pytest
-docs/             # decisões e contrato da API
+├─ main.py              # FastAPI, CORS, limite de corpo, /health, carga do acervo
+├─ api/routes/          # rotas do contrato com o front
+├─ core/                # config, níveis de acesso, personas, autenticação, limites
+├─ schemas/             # contrato JSON (camelCase, igual ao front)
+├─ seed/                # manifesto do acervo e JSON curado do front
+└─ services/
+   ├─ ingest/           # PDF -> cabeçalho -> trechos (Silver)
+   ├─ rag/              # índice BM25 por nível de acesso
+   ├─ llm/              # cliente OpenAI-compatible
+   ├─ agent/            # intenções, guardas e roteador de custo do chat
+   ├─ calculators/      # férias, alçadas, contrato, calendário de dias úteis
+   ├─ grafo.py          # mapa do acervo
+   └─ radar, reports, access, ingest_audit, audit_log
+acervo/bronze/          # PDFs
+scripts/                # gerador do manifesto
+tests/                  # pytest + tests/eval (banco de perguntas)
+docs/                   # contrato, plano, metodologia e revisões de segurança
 ```
 
-## Começando
+## Documentação
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload     # http://localhost:8000
-```
-
-- Documentação interativa (contrato): http://localhost:8000/docs
-- Testes: `pytest` · Lint: `ruff check .`
+| Arquivo | Conteúdo |
+|---|---|
+| [docs/CONTRATO.md](docs/CONTRATO.md) | Rotas, formatos, identidade, limites e ajustes do front |
+| [docs/PLANO.md](docs/PLANO.md) | Plano do back-end aprovado |
+| [docs/METODOLOGIA_GRAFO.md](docs/METODOLOGIA_GRAFO.md) | Como o acervo é ingerido, como o chat busca e como o grafo é montado |
+| [docs/SEGURANCA_REVISAO_CODEX.md](docs/SEGURANCA_REVISAO_CODEX.md) | Revisão de segurança do back (SEC-01 a SEC-27) |
+| [docs/SEGURANCA_GRAFO_CODEX.md](docs/SEGURANCA_GRAFO_CODEX.md) | Revisão de segurança do grafo (GRAFO-01 a GRAFO-24) |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md) | Branches e fluxo de PR |
 
 ## Branches e workflow
 
