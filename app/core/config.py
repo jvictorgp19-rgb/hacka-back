@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 RAIZ = Path(__file__).resolve().parents[2]
@@ -14,15 +15,16 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     cors_origins: str = "http://localhost:3000"
-    database_url: str = ""  # Neon (PostgreSQL); vazio = SQLite local, só testes/offline
+    # Neon (PostgreSQL); vazio = SQLite local, só testes/offline. Segredos fora do repr.
+    database_url: str = Field(default="", repr=False)
 
     auth_mode: Literal["demo", "token"] = "demo"  # valor desconhecido derruba o startup
-    auth_token_secret: str = ""
+    auth_token_secret: str = Field(default="", repr=False)
     auth_token_ttl_min: int = 30
     demo_default_persona: str = ""
 
     llm_base_url: str = ""
-    llm_api_key: str = ""
+    llm_api_key: str = Field(default="", repr=False)
     llm_model: str = ""
     llm_model_large: str = ""
     llm_timeout_s: float = 20

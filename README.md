@@ -84,46 +84,74 @@ sem TLS só é aceito para `localhost` (túnel SSH), salvo `LLM_ALLOW_HTTP=true`
 ## Banco (Neon)
 
 A trilha de auditoria (LGPD art. 37) fica no [Neon](https://neon.tech), que é PostgreSQL. Sem
-`DATABASE_URL`, o back usa um SQLite local; isso serve só para testes e para rodar offline.
+`DATABASE_URL`, o back usa um SQLite local, só para testes e para rodar offline. Com
+`APP_ENV=production`, a `DATABASE_URL` é obrigatória e o SQLite é recusado.
 
 1. Crie o projeto no Neon na região **São Paulo (AWS sa-east-1)**. Um banco fora do Brasil é
-   transferência internacional de dados (LGPD art. 33).
-2. Com o papel dono do banco, crie um papel só para a aplicação, com acesso mínimo:
+   transferência internacional de dados (LGPD art. 33). Em produção, a API avisa no log quando o
+   host não é de `sa-east-1`. A região efetiva deve ser conferida no console.
+2. Com o papel dono do banco, crie um papel só para a aplicação:
 
    ```sql
    CREATE ROLE raiz_app LOGIN PASSWORD '<senha forte>';
    GRANT USAGE ON SCHEMA public TO raiz_app;
    ```
 
-3. Crie a tabela uma vez, com a connection string do **dono**:
+3. Crie a tabela uma vez, com a connection string do **dono**. Ela não vai para o `.env` da
+   aplicação:
 
    ```bash
-   DATABASE_URL='postgresql://<dono>:<senha>@<endpoint>.sa-east-1.aws.neon.tech/neondb?sslmode=require' \
-     python -m app.services.audit_log
+   DATABASE_URL='postgresql://<dono>:<senha>@<endpoint>.sa-east-1.aws.neon.tech/neondb?sslmode=require'      python -m app.services.audit_log
    ```
 
-4. Libere só a escrita para a aplicação:
+4. Libere só a escrita para a aplicação. Não conceda `SELECT`, `UPDATE`, `DELETE` nem `CREATE`:
 
    ```sql
    GRANT INSERT ON auditoria TO raiz_app;
    GRANT USAGE ON SEQUENCE auditoria_id_seq TO raiz_app;
    ```
 
-5. No `.env` da aplicação, use a connection string do `raiz_app`. Prefira o endpoint com
-   `-pooler`:
+5. No `.env` da aplicação, cole a connection string do `raiz_app` como o console entrega.
+   Prefira o endpoint com `-pooler`:
 
    ```
    DATABASE_URL=postgresql://raiz_app:<senha>@<endpoint>-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+   APP_ENV=production
    ```
 
-Regras do back:
-- **TLS obrigatório** em banco remoto. Um `sslmode` diferente de `require`, `verify-ca` ou
-  `verify-full` impede a API de subir.
-- **Driver:** a URL do console (`postgresql://` ou `postgres://`) passa a usar o psycopg 3.
-- **Gravação em segundo plano:** a resposta não espera o banco, porque o Neon hiberna e a
-  primeira conexão depois disso demora. Com o banco fora do ar, a fila guarda até 1.000
-  registros; o excedente é descartado e contado no log.
-- **Logs:** nunca mostram usuário, senha nem host do banco.
+### Regras da conexão
+
+- **TLS completo.** Banco remoto sempre conecta com `sslmode=verify-full`, que confere o
+  certificado e o nome do servidor. Também usa `channel_binding=require` e as CAs do `certifi`.
+  `sslmode` sem TLS e `channel_binding=disable` impedem a API de subir.
+- **Destino só pela URL.** Na query, só são aceitos `sslmode`, `channel_binding` e `sslrootcert`.
+  Parâmetros como `host`, `hostaddr`, `password` e `service` são recusados. As variáveis
+  `PGHOST`, `PGHOSTADDR`, `PGSERVICE` e `PGSERVICEFILE` também são recusadas.
+- **Sem segredo em log.** Logs e erros nunca mostram usuário, senha nem host. As `Settings`
+  escondem `DATABASE_URL`, `LLM_API_KEY` e `AUTH_TOKEN_SECRET` no `repr`.
+- **Tempo limite.** Cada gravação tem `statement_timeout` de 5 s e `lock_timeout` de 2 s, com
+  keepalive TCP.
+
+### Gravação
+
+- **Em segundo plano.** A resposta não espera o banco, porque o Neon hiberna e a primeira
+  conexão depois disso demora.
+- **Lote que falha não é descartado.** Ele volta a ser gravado com espera crescente, até 30 s
+  entre tentativas. Cada evento tem um id, e regravar não duplica.
+- **Fila limitada.** Enquanto o banco está fora, os novos registros esperam numa fila de até
+  1.000. O excedente é descartado e contado no log.
+- **Encerramento.** A API tenta gravar o que falta por até 10 s. Com o banco fora do ar, o que
+  sobrar é descartado e contado.
+
+### Limites conhecidos
+
+- **A fila fica em memória.** Se o processo cair, o que não foi gravado se perde.
+- **O dono do banco pode alterar ou apagar registros.** Para servir de prova contra quem
+  administra o banco, a trilha teria que ser exportada para um armazenamento imutável, sob outro
+  controle.
+- **Falta definir retenção e expurgo** antes de usar dados reais. Os metadados ligados a uma
+  pessoa continuam sendo dados pessoais.
+- Revisão completa: [docs/SEGURANCA_NEON_CODEX.md](docs/SEGURANCA_NEON_CODEX.md).
 
 ## Testes e avaliação
 
@@ -177,6 +205,7 @@ docs/                   # contrato, plano, metodologia e revisões de segurança
 | [docs/METODOLOGIA_GRAFO.md](docs/METODOLOGIA_GRAFO.md) | Como o acervo é ingerido, como o chat busca e como o grafo é montado |
 | [docs/SEGURANCA_REVISAO_CODEX.md](docs/SEGURANCA_REVISAO_CODEX.md) | Revisão de segurança do back (SEC-01 a SEC-27) |
 | [docs/SEGURANCA_GRAFO_CODEX.md](docs/SEGURANCA_GRAFO_CODEX.md) | Revisão de segurança do grafo (GRAFO-01 a GRAFO-24) |
+| [docs/SEGURANCA_NEON_CODEX.md](docs/SEGURANCA_NEON_CODEX.md) | Revisão de segurança da auditoria no Neon (NEON-01 a NEON-09) |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | Branches e fluxo de PR |
 
 ## Branches e workflow

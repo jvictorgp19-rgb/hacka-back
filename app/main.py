@@ -33,8 +33,10 @@ async def lifespan(_: FastAPI):
              banco)
     if cfg.auth_mode != "token":
         log.warning("AUTH_MODE=demo: RBAC simulado por personaId. Use só com dados sintéticos.")
-    yield
-    audit_log.encerrar()
+    try:
+        yield
+    finally:
+        audit_log.encerrar()
 
 
 # O Swagger fica em /swagger porque GET /docs é rota do contrato com o front (catálogo).
