@@ -9,6 +9,7 @@ rank-bm25==0.2.2
 openai==3.49.0
 python-pptx==1.0.2
 SQLAlchemy==2.1.8
+psycopg[binary]==3.3.9
 PyYAML==6.0.3
 pytest==9.2.0
 ruff==0.17.4

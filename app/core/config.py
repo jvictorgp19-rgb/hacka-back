@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     cors_origins: str = "http://localhost:3000"
-    database_url: str = "sqlite:///./data/app.db"
+    database_url: str = ""  # Neon (PostgreSQL); vazio = SQLite local, só testes/offline
 
     auth_mode: Literal["demo", "token"] = "demo"  # valor desconhecido derruba o startup
     auth_token_secret: str = ""

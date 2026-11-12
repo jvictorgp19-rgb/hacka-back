@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.contrato import router
 from app.core.config import get_settings
 from app.core.limites import LimiteDeCorpo
+from app.services import audit_log
 from app.services.acervo import get_acervo
 from app.services.agent.router import get_indice
 from app.services.grafo import get_grafo
@@ -23,14 +24,17 @@ async def lifespan(_: FastAPI):
     acervo = get_acervo()  # carrega o Silver (ou ingere os PDFs do manifesto)
     get_indice()
     get_grafo()
+    banco = audit_log.preparar()  # DATABASE_URL insegura impede o startup
     for item in acervo.quarentena:
         log.warning("Documento em quarentena: %s (%s)", item["documento"], item["motivo"])
-    log.info("Acervo: %d documentos, %d trechos. LLM %s. AUTH_MODE=%s.",
+    log.info("Acervo: %d documentos, %d trechos. LLM %s. AUTH_MODE=%s. Auditoria: %s.",
              len(acervo.documentos), len(acervo.chunks),
-             "ligado" if get_llm().ligado else "desligado (modo extrativo)", cfg.auth_mode)
+             "ligado" if get_llm().ligado else "desligado (modo extrativo)", cfg.auth_mode,
+             banco)
     if cfg.auth_mode != "token":
         log.warning("AUTH_MODE=demo: RBAC simulado por personaId. Use só com dados sintéticos.")
     yield
+    audit_log.encerrar()
 
 
 # O Swagger fica em /swagger porque GET /docs é rota do contrato com o front (catálogo).

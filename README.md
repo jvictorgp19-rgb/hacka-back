@@ -81,6 +81,50 @@ LLM_MODEL=<nome do modelo>
 Sem essas variáveis, o chat responde com calculadoras e trechos citados (modo extrativo). HTTP
 sem TLS só é aceito para `localhost` (túnel SSH), salvo `LLM_ALLOW_HTTP=true`.
 
+## Banco (Neon)
+
+A trilha de auditoria (LGPD art. 37) fica no [Neon](https://neon.tech), que é PostgreSQL. Sem
+`DATABASE_URL`, o back usa um SQLite local; isso serve só para testes e para rodar offline.
+
+1. Crie o projeto no Neon na região **São Paulo (AWS sa-east-1)**. Um banco fora do Brasil é
+   transferência internacional de dados (LGPD art. 33).
+2. Com o papel dono do banco, crie um papel só para a aplicação, com acesso mínimo:
+
+   ```sql
+   CREATE ROLE raiz_app LOGIN PASSWORD '<senha forte>';
+   GRANT USAGE ON SCHEMA public TO raiz_app;
+   ```
+
+3. Crie a tabela uma vez, com a connection string do **dono**:
+
+   ```bash
+   DATABASE_URL='postgresql://<dono>:<senha>@<endpoint>.sa-east-1.aws.neon.tech/neondb?sslmode=require' \
+     python -m app.services.audit_log
+   ```
+
+4. Libere só a escrita para a aplicação:
+
+   ```sql
+   GRANT INSERT ON auditoria TO raiz_app;
+   GRANT USAGE ON SEQUENCE auditoria_id_seq TO raiz_app;
+   ```
+
+5. No `.env` da aplicação, use a connection string do `raiz_app`. Prefira o endpoint com
+   `-pooler`:
+
+   ```
+   DATABASE_URL=postgresql://raiz_app:<senha>@<endpoint>-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+   ```
+
+Regras do back:
+- **TLS obrigatório** em banco remoto. Um `sslmode` diferente de `require`, `verify-ca` ou
+  `verify-full` impede a API de subir.
+- **Driver:** a URL do console (`postgresql://` ou `postgres://`) passa a usar o psycopg 3.
+- **Gravação em segundo plano:** a resposta não espera o banco, porque o Neon hiberna e a
+  primeira conexão depois disso demora. Com o banco fora do ar, a fila guarda até 1.000
+  registros; o excedente é descartado e contado no log.
+- **Logs:** nunca mostram usuário, senha nem host do banco.
+
 ## Testes e avaliação
 
 ```bash
