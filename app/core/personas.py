@@ -22,7 +22,8 @@ PERSONAS: dict[str, Persona] = {
     for p in [
         Persona("ana", "Ana", "Analista / Empregada", "Operações", "Interna"),
         Persona("carlos", "Carlos", "Gestor - Equipe de 9", "Gerência Operacional", "Interna"),
-        Persona("marina", "Marina", "Proponente - Ideias em Campo", "Operações de Campo", "Interna"),
+        Persona("marina", "Marina", "Proponente - Ideias em Campo", "Operações de Campo",
+                "Interna"),
         Persona("rafael", "Rafael", "Fiscal Técnico - GOC", "GOC", "Restrita"),
         Persona("diretora_diraf", "Diretora da DIRAF", "Executiva", "DIRAF", "Sigilosa"),
         Persona("curadora_ggc", "Curadora da GGC", "Dona do Domínio", "GGC", "Sigilosa", ("GGC",)),
