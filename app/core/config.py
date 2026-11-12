@@ -1,0 +1,47 @@
+"""Configuração central. Tudo vem de variáveis de ambiente (.env); nenhum segredo no código."""
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+RAIZ = Path(__file__).resolve().parents[2]
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    app_env: str = "development"
+    cors_origins: str = "http://localhost:3000"
+    database_url: str = "sqlite:///./data/app.db"
+
+    auth_mode: str = "demo"  # demo | token
+    auth_token_secret: str = ""
+    auth_token_ttl_min: int = 30
+    demo_default_persona: str = ""
+
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
+    llm_model_large: str = ""
+    llm_timeout_s: float = 20
+    llm_max_tokens: int = 500
+    llm_allow_http: bool = False
+    llm_cost_per_1k_brl: float = 0
+
+    max_message_chars: int = 2000
+    max_body_bytes: int = 16384
+    rate_chat_per_min: int = 30
+    rate_reports_per_min: int = 3
+
+    @property
+    def origens_cors(self) -> list[str]:
+        origens = [o.strip().rstrip("/") for o in self.cors_origins.split(",") if o.strip()]
+        if "*" in origens:
+            raise ValueError("CORS_ORIGINS não aceita '*'; informe as origens exatas.")
+        return origens
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
