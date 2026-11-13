@@ -68,10 +68,6 @@ def antecipar_para_dia_util(d: date) -> date:
     return d if dia_util(d) else dia_util_anterior(d)
 
 
-def postergar_para_dia_util(d: date) -> date:
-    return d if dia_util(d) else dia_util_seguinte(d)
-
-
 DIAS_SEMANA = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira",
                "sábado", "domingo"]
 

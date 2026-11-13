@@ -182,7 +182,7 @@ def _csv(caminho: Path, avisos: list[str]) -> list[str]:
 
 
 def extrair(caminho: Path, nome: str) -> Extracao:
-    """Extrai no processo atual. Use extrair_isolado() para arquivo vindo de fora."""
+    """Extrai no processo atual. Arquivo vindo de fora: triar_arquivo(isolar=True)."""
     tamanho = caminho.stat().st_size
     if tamanho == 0:
         raise ArquivoRecusado("Arquivo vazio.")
@@ -208,24 +208,6 @@ def extrair(caminho: Path, nome: str) -> Extracao:
 
 
 # ---------- processo isolado ----------
-def _no_filho(caminho: str, nome: str, saida) -> None:
-    try:
-        saida.send(("ok", extrair(Path(caminho), nome).as_dict()))
-    except ArquivoRecusado as erro:
-        saida.send(("recusado", str(erro)))
-    except Exception as erro:  # noqa: BLE001 - qualquer falha do parser vira recusa genérica
-        saida.send(("recusado", f"Não foi possível ler o arquivo ({type(erro).__name__})."))
-    finally:
-        saida.close()
-
-
-def extrair_isolado(caminho: Path, nome: str, tempo_limite_s: float = TEMPO_LIMITE_S
-                    ) -> Extracao:
-    """Roda extrair() em outro processo. Estouro de tempo mata o processo e recusa o arquivo."""
-    return Extracao(**rodar_isolado(_no_filho, str(caminho), nome,
-                                    tempo_limite_s=tempo_limite_s))
-
-
 def rodar_isolado(alvo, caminho: str, nome: str, tempo_limite_s: float = TEMPO_LIMITE_S
                   ) -> dict:
     """Roda alvo(caminho, nome, saida) em processo novo e devolve o dict enviado por ele.
