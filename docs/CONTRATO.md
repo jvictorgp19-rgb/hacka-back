@@ -3,8 +3,13 @@
 Base: `http://localhost:8000`. Documentação interativa em **`/swagger`** (o caminho `/docs` é uma
 rota do contrato: o catálogo do acervo).
 
-Os formatos abaixo espelham os tipos TypeScript do `hacka-front`, branch `lana`
-(`src/lib/api.ts` e `src/app/api/chat/route.ts`). Mudou o contrato? Avise no chat e atualize aqui.
+Os formatos abaixo espelham os schemas zod do `hacka-front`, branch `Dev`
+(`src/contracts/models.ts` e `src/services/http/client.ts`). As rotas antigas (`/chat`, `/docs`,
+`/radar`, `/access`, `/reports`, `/ingest`) seguem a branch `lana` e continuam no ar.
+Mudou o contrato? Avise no chat e atualize aqui.
+
+O back segue o contrato como está. Problemas do front ficam listados em
+[docs/PENDENCIAS_FRONT.md](PENDENCIAS_FRONT.md), sem contorno no back.
 
 ## Rotas
 
@@ -24,7 +29,68 @@ Os formatos abaixo espelham os tipos TypeScript do `hacka-front`, branch `lana`
 | `POST /document-jobs/{id}/decision` | `{status: approved\|rejected, response, persona, nivel?, setores?}` | `UploadItem` |
 | `POST /document-jobs/{id}/forget` | — (só quem enviou) | `UploadItem` sem dado pessoal (LGPD art. 18, VI) |
 | `GET /analyses/charts?panel=&hoje=` | `panel`: `acervo`, `radar`, `triagem` ou `uso` | `Grafico[]` |
+| `GET /documents` | — | `Document[]` que o sujeito vê |
+| `GET /documents/{id}/file` | `id`: `CODIGO@x.y.z` | PDF (`inline`), 404 se o sujeito não vê |
+| `GET /analyses/evidence` | — | `Fact[]` que o sujeito vê |
+| `GET /deadlines?hoje=` | `hoje` opcional | `Deadline[]` |
+| `GET /audit/findings?hoje=` | `hoje` opcional | `Finding[]` (só curadoria e diretoria) |
+| `GET /simulation-rules` | — | `SimulationRules`; `401` sem identificação, `403` sem acesso a todas as fontes |
+| `GET /conversations/messages?persona=` | — | `Answer[]` da própria persona |
+| `POST /conversations/messages` | `{query, context}` | `Answer` |
+| `GET /access-requests?persona=` | — | `AccessRequest[]`: os meus e os que eu decido |
+| `POST /access-requests` | `{reason, persona, owner}` | `AccessRequest` (`422` se `owner` não é setor BBTS) |
+| `POST /access-requests/{id}/decision` | `{status: curated\|denied\|granted, response, persona}` | `AccessRequest` (`403`, `404`, `409`) |
+| `GET /analyses?persona=` | — | `SavedRecord[]` da própria persona |
+| `POST /analyses` | `{id, title, kind, persona, facts, context, createdAt}` | `SavedRecord` |
+| `GET /feedback?persona=` | — | `Feedback[]` da própria persona |
+| `POST /feedback` | `{id, targetId, persona, useful, reason}` | `Feedback` (um por `targetId`) |
 | `GET /health` | — | `{"status": "ok"}` |
+
+Nas rotas do front, campo opcional sem valor sai **ausente**, nunca `null`: o zod `.optional()`
+recusa `null`.
+
+## Telas do hacka-front
+
+| Tela | Rotas |
+|---|---|
+| Identidade (barra do topo) | `GET /identity` |
+| Acervo | `GET /documents`, `GET /documents/{id}/file` |
+| Análises e Resumos (filtros por tema, área, perspectiva e período) | `GET /analyses/evidence`, `GET /analyses`, `POST /analyses` |
+| Prazos | `GET /deadlines` |
+| Conversa | `GET` e `POST /conversations/messages`, `GET` e `POST /feedback` |
+| Administração (governança) | `GET` e `POST /access-requests`, `POST /access-requests/{id}/decision`, `GET /audit/findings` |
+| Simuladores | `GET /simulation-rules` |
+| Envio de documentos | `POST /document-jobs`, `GET /document-jobs/{id}` |
+| Gráficos | `GET /analyses/charts` |
+
+### Regras das rotas do front
+
+- **Documentos e PDFs.** `/documents` lista só o que o sujeito vê. O `fileUrl` aponta para
+  `GET /documents/{id}/file`, que confere o acesso de novo antes de servir o arquivo. A versão
+  substituída sem PDF próprio sai sem `fileUrl`.
+- **Fatos (`/analyses/evidence`).** Vêm de `app/seed/evidencias.json`. Cada fato cita um trecho
+  conferido no acervo, com a página achada no PDF. `area` é a sigla BBTS do setor dono do
+  documento citado (GEPEC, GEINOV, GESUC). O fato só sai para quem vê a versão citada.
+- **Prazos.** Os mesmos eventos do `/radar`. Cada prazo cita o item do documento que o fundamenta.
+  `priority` é `Crítica` até 30 dias, `Alta` até 90 e `Normal` depois.
+- **Achados.** Os do `/ingest`, no formato `{id, title, detail, documents}`.
+- **Regras de simulação.** Valores reais das fontes: férias (NG_111), nota técnica
+  (NT_2026-021) e contrato (CTR_2026-012). O contrato do front junta tudo numa resposta só. Se o
+  sujeito não vê alguma das fontes, a rota responde `403` e não devolve nada parcial
+  (LAI art. 25, § 1º).
+- **Conversa.** Usa o mesmo motor do `/chat`. `status`: `access_required` quando há `rbacBlock`,
+  `abstained` na abstenção ou sem citação, `conflict` quando há `revokedAlert`, `answered` nos
+  demais casos. A pergunta fica guardada **mascarada** (CPF, e-mail, telefone etc.).
+- **Pedidos de acesso.** `owner` precisa ser um setor BBTS. Decide quem cura o setor dono ou é
+  diretor da diretoria dele. `granted` só registra a decisão: **não muda a permissão real**, que
+  continua no cadastro (`app/core/personas.py`) e no manifesto.
+- **Análises salvas.** Do corpo só se aproveita o `id` de cada fato. O conteúdo vem do servidor e
+  é refeito na leitura, com a ACL do momento.
+- **Persona.** Nas rotas com `persona` no corpo ou na query, a ordem de resolução é a da seção
+  "Identidade". No modo `token`, uma persona diferente da do token dá `403`.
+- **Retenção.** Conversas, análises, feedback e pedidos ficam na tabela `registro_front` e são
+  apagados após `RETENCAO_REGISTROS_DIAS` (padrão 180) sem atualização (LGPD art. 15 e 16).
+  Cada persona só lê os próprios registros. Pedido de acesso também aparece para quem decide.
 
 `ChatResponse`:
 
@@ -220,7 +286,9 @@ Com o front e a API em domínios diferentes:
 O modo `demo` é uma **simulação de RBAC**: qualquer pessoa pode escolher qualquer persona.
 Use só com o acervo sintético. Com dados reais, use `AUTH_MODE=token` atrás de HTTPS.
 
-## O que o front precisa ajustar (Lana)
+## O que o front precisa ajustar (branch `lana`, rotas antigas)
+
+Pendências da branch `Dev` em [docs/PENDENCIAS_FRONT.md](PENDENCIAS_FRONT.md).
 
 1. **Mandar a persona em todas as chamadas.** Hoje só `/chat` envia `personaId`. Em `/docs`,
    `/radar`, `/access`, `/ingest` e `/reports`, mande o header `X-Persona-Id` (ou `personaId` no
@@ -280,11 +348,12 @@ os trechos enviados; sem citação válida, o back devolve os trechos em modo ex
 | Chat | 30 por minuto por persona e IP (`429`) | `RATE_CHAT_PER_MIN` |
 | Relatórios | 3 por minuto (`429`) | `RATE_REPORTS_PER_MIN` |
 | Grafo | 30 por minuto (`429`) | `RATE_GRAFO_PER_MIN` |
+| Gravações do site (pedidos, análises, feedback) | 60 por minuto (`429`) | `RATE_REGISTROS_PER_MIN` |
 
 ## Pendências conhecidas (fora deste escopo)
 
-- `/access` é um stub de leitura com um pedido sintético. Criar pedido, decidir e emitir resposta
-  curada é escopo do Victor.
+- `/access` (branch `lana`) é um stub de leitura. Na branch `Dev`, `/access-requests` cria e
+  decide pedidos, mas a decisão não altera a permissão real.
 - `/ingest` só audita. A ingestão é offline (`python -m app.services.ingest.pipeline`), a partir
   do manifesto. O upload (`/document-jobs`) faz triagem e aprovação; o arquivo aprovado
   ainda não entra no índice do chat. Conectores são escopo do João.

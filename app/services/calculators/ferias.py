@@ -18,6 +18,7 @@ ANTECEDENCIA_ASSINATURA = 30  # 4.5.4
 ANTECEDENCIA_ALTERACAO = 20  # 4.9.1
 ANTECEDENCIA_PAGAMENTO = 3  # 4.5.5
 TETO_RESSARCIMENTO = Decimal("2500.00")  # 4.9.3
+PERCENTUAL_AUSENCIA = 30  # 4.6.3: no máximo 30% da equipe de férias ao mesmo tempo
 
 # TB_1111-001 Tabela 1: (faltas mínimas, faltas máximas, dias de férias)
 TABELA_FALTAS = [(0, 5, 30), (6, 14, 24), (15, 23, 18), (24, 32, 12)]
@@ -105,7 +106,7 @@ def limite_ausencia(tamanho_equipe: int) -> int:
     """NG_111 4.6.3: 30% da equipe, arredondado para baixo, mínimo de 1."""
     if tamanho_equipe < 1:
         raise ValueError("A equipe precisa ter ao menos 1 empregado.")
-    return max(1, tamanho_equipe * 30 // 100)
+    return max(1, tamanho_equipe * PERCENTUAL_AUSENCIA // 100)
 
 
 def validar_fracionamento(periodos: list[int], direito: int = 30) -> tuple[bool, str]:

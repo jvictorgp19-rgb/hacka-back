@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # Dados pessoais dos envios (nome do arquivo, resposta, fatos de férias) são eliminados
     # depois deste prazo (LGPD art. 15 e 16). Ficam a classificação e a decisão.
     retencao_envios_dias: int = 180
+    # Conversas, análises salvas, feedback e pedidos de acesso do site (app/services/registros.py).
+    retencao_registros_dias: int = 180
+    rate_registros_per_min: int = 60  # pedidos, análises e feedback do site
+    # URL pública da API, para os links de PDF (/documents/{id}/file). Vazio: a do próprio pedido.
+    api_public_url: str = ""
 
     @property
     def origens_cors(self) -> list[str]:

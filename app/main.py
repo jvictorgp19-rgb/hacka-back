@@ -7,12 +7,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import envios as rotas_envios
+from app.api.routes import front as rotas_front
 from app.api.routes import graficos as rotas_graficos
 from app.api.routes import identidade as rotas_identidade
 from app.api.routes.contrato import router
 from app.core.config import get_settings
 from app.core.limites import LimiteDeCorpo, OrigemConfiavel
-from app.services import audit_log, envios, persistencia
+from app.services import audit_log, envios, persistencia, registros
 from app.services.acervo import get_acervo
 from app.services.agent.router import get_indice
 from app.services.grafo import get_grafo
@@ -30,6 +31,7 @@ async def lifespan(_: FastAPI):
     banco = audit_log.preparar()  # DATABASE_URL insegura impede o startup
     persistencia.sincronizar_em_segundo_plano(acervo, grafo)  # espelho no banco
     envios.restaurar_em_segundo_plano()  # envios e aprovações sobrevivem ao restart
+    registros.expurgar_em_segundo_plano()  # retenção das conversas e pedidos
     for item in acervo.quarentena:
         log.warning("Documento em quarentena: %s (%s)", item["documento"], item["motivo"])
     log.info("Acervo: %d documentos, %d trechos. LLM %s. AUTH_MODE=%s. Auditoria: %s.",
@@ -62,6 +64,7 @@ app.include_router(router)
 app.include_router(rotas_envios.router)
 app.include_router(rotas_identidade.router)
 app.include_router(rotas_graficos.router)
+app.include_router(rotas_front.router)
 
 
 @app.get("/health")
