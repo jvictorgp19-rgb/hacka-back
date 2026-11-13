@@ -31,9 +31,14 @@ O back segue o contrato como está. Problemas do front ficam listados em
 | `GET /feedback?persona=` | — | `Feedback[]` da própria persona |
 | `POST /feedback` | `{id, targetId, persona, useful, reason}` | `Feedback` (um por `targetId`) |
 | `POST /document-jobs` | multipart, campo `files` (até 10 arquivos; o front manda 1 por vez) | `UploadItem[]` |
+| `GET /document-jobs?limit=100&offset=0` | paginação (limite 1–500) | `UploadItem[]` autorizados, mais recentes primeiro |
 | `GET /document-jobs/{id}` | — | `UploadItem` (404 se o sujeito não pode ver) |
+| `GET /document-jobs/{id}/file` | — | download do original (404 sem acesso ou original) |
+| `POST /document-jobs/{id}/decision` | `{status: aprovado\|recusado, response?: string}` | `UploadItem` (`403`, `404`, `409`, `503`) |
 
-Campo opcional sem valor sai **ausente**, nunca `null`: o zod `.optional()` recusa `null`.
+Nas rotas do front, campo opcional sem valor sai **ausente**: o zod `.optional()` recusa `null`.
+`UploadItem` mantém campos de triagem e decisão nulos enquanto não há resultado; o schema de
+uploads aceita esses campos como opcionais e anuláveis.
 
 Rotas que saíram porque o front não as chama (histórico em
 [docs/HISTORICO_COMMITS.md](HISTORICO_COMMITS.md)):
@@ -41,7 +46,6 @@ Rotas que saíram porque o front não as chama (histórico em
 - contrato antigo da branch `lana`: `/chat`, `/docs`, `/radar`, `/access`, `/ingest`, `/reports`,
   `/reports/pptx` e `/grafo`;
 - `GET /health`, `GET /analyses/charts`, `POST /identity`, `POST /identity/sair`,
-  `GET /document-jobs` (lista), `POST /document-jobs/{id}/decision` e
   `POST /document-jobs/{id}/forget`.
 
 ## Telas do hacka-front
@@ -55,7 +59,7 @@ Rotas que saíram porque o front não as chama (histórico em
 | Conversa | `GET` e `POST /conversations/messages`, `GET` e `POST /feedback` |
 | Administração (governança) | `GET` e `POST /access-requests`, `POST /access-requests/{id}/decision`, `GET /audit/findings` |
 | Simuladores | `GET /simulation-rules` |
-| Envio de documentos | `POST /document-jobs`, `GET /document-jobs/{id}` |
+| Envio de documentos | `POST` e `GET /document-jobs`, `GET /document-jobs/{id}`, `GET /document-jobs/{id}/file`, `POST /document-jobs/{id}/decision` |
 
 ### Regras das rotas
 
@@ -127,23 +131,31 @@ vêm sempre preenchidos. Os outros campos detalham a triagem, e o front pode ign
 
 Ciclo do envio:
 
-1. O `POST` confere identidade, tamanho e assinatura do arquivo e responde na hora.
+1. O `POST` confere identidade, tamanho e assinatura e salva registro e original na mesma transação.
+   Falha na gravação retorna `503`, sem confirmar que o arquivo foi salvo.
    - Se o arquivo passa, o status é `processing`.
    - Se não passa, o status é `failed` e `message` diz o motivo.
 2. A triagem roda em segundo plano, num processo separado com tempo limite.
 3. O `GET /document-jobs/{id}` traz o resultado, com status `ready`, `not_extracted` ou `failed`.
-4. O arquivo é apagado logo após a triagem.
-5. O banco (`triagem_documento`) guarda só nome, tamanho, hash, sugestão e situação da
-   aprovação. Ele nunca guarda o texto nem os valores encontrados (LGPD art. 6º, III, e art. 46).
+4. Só a cópia temporária é apagada após a triagem. O original fica na tabela `triagem_arquivo`.
+5. `triagem_documento` guarda nome, tamanho, hash, sugestão e situação da aprovação. As leituras
+   consultam o banco, inclusive depois de um reinício; não dependem do cache do processo.
+6. O front busca todas as páginas de `GET /document-jobs` ao abrir o Acervo. A paginação é
+   aplicada depois da autorização. Enquanto o usuário navega, a fila fica no contexto do workspace.
+7. `saved: true` confirma a gravação do registro. `fileAvailable` informa se o original existe
+   e está no prazo de retenção. Registros da versão antiga podem não ter original.
+   O download usa `GET /document-jobs/{id}/file`, com a mesma identidade das outras chamadas.
+   Fatos de férias também exigem autorização para dados pessoais ao baixar o original.
 
 Aprovação, conforme docs/CLASSIFICACAO_BBTS.md e LAI art. 27:
 
 - **Quando é exigida.** Em todo envio de desenvolvedor júnior. Também quando a sugestão pede
   revisão humana: sigilosa, conteúdo não extraído ou confiança baixa. Nos demais casos,
   `aprovacao` é `dispensado`.
-- **Sem rota de decisão.** O hacka-front não tem tela de aprovação, então a API também não tem
-  rota para decidir. O envio que exige aprovação fica `pendente` (docs/PENDENCIAS_FRONT.md,
-  item 5). `aprovadores` diz quem poderia aprovar.
+- **Decisão.** `canApprove` habilita o botão para quem pode decidir. A rota de decisão confere
+  novamente o aprovador, confirma o nível e os setores sugeridos e grava `decidedBy`, `decidedAt`
+  e `aprovacao`. Uma decisão simultânea ou repetida recebe `409`. O corpo não pode alterar
+  os setores nem reduzir o sigilo. `aprovadores` explica quem pode decidir o pendente.
 - **Quem vê o pendente.** Quem enviou e os aprovadores. Quem enviou nunca aprova o próprio envio.
   - Sugestão Interna (envio de júnior): gestor ou sênior do setor de quem enviou ou do setor
     dono, a curadoria do setor dono e o diretor da diretoria do setor dono.
@@ -156,7 +168,8 @@ Aprovação, conforme docs/CLASSIFICACAO_BBTS.md e LAI art. 27:
 Retenção (LGPD art. 15 e 16):
 
 - Passados `RETENCAO_ENVIOS_DIAS` (padrão 180), o nome do arquivo, a resposta do aprovador e os
-  fatos de férias são eliminados. A classificação fica, sem dado pessoal.
+  fatos de férias e o original são eliminados, inclusive fora do cache. A classificação fica,
+  sem dado pessoal. A leitura já oculta os dados vencidos antes do próximo expurgo.
 - O pedido de eliminação antes do prazo (LGPD art. 18, VI) não tem rota. O encarregado
   roda `python scripts/eliminar_envio.py <id>` e reinicia a API; o pedido chega por ele
   (LGPD art. 41) até o front ter a tela.

@@ -2,16 +2,16 @@
 
 Ciclo do envio: waiting -> processing -> ready | not_extracted | failed.
 
-O arquivo vai para um temporário, é triado em processo separado (app/services/triagem) e é
-apagado logo depois. O texto nunca é guardado. O registro tem só:
+O original é salvo no banco antes de confirmar o recebimento. A triagem usa uma cópia
+temporária, apagada ao terminar. O registro de triagem tem só:
 - nome, tamanho e hash do arquivo;
 - a sugestão de sigilo e de setor, com os tipos de dado achados (nunca os valores);
 - a situação da aprovação.
 Base: LGPD art. 6º, III (necessidade) e art. 46 (segurança).
 
 Aprovação (docs/CLASSIFICACAO_BBTS.md; LAI art. 27: classificar é ato de autoridade).
-O hacka-front não tem tela de aprovação, então a API também não tem rota de decisão: o envio que
-precisa de aprovação fica pendente, visível só para quem enviou e para os aprovadores.
+O envio que precisa de aprovação fica pendente, visível só para quem enviou e os aprovadores.
+O original segue a mesma autorização e é eliminado junto com os dados pessoais na retenção.
 - Precisa de aprovação:
   - o envio de desenvolvedor júnior;
   - toda sugestão que pede revisão humana: sigilosa, conteúdo não extraído ou confiança baixa.
@@ -50,11 +50,15 @@ from sqlalchemy import (
     Column,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
+    LargeBinary,
     MetaData,
     String,
     Table,
     Text,
+    delete,
+    exists,
     select,
     update,
 )
@@ -83,6 +87,14 @@ ID_VALIDO = re.compile(r"^[0-9a-f]{32}$")
 
 class FilaCheia(RuntimeError):
     """Muitos arquivos esperando triagem."""
+
+
+class PersistenciaIndisponivel(RuntimeError):
+    """A gravação não foi confirmada pelo banco."""
+
+
+class DecisaoConflitante(RuntimeError):
+    """O envio não está mais pendente."""
 
 
 @dataclass
@@ -114,6 +126,7 @@ class Envio:
     decidido_em: datetime | None = None
     resposta: str | None = None
     fatos_ferias: dict | None = None
+    arquivo_disponivel: bool = False  # calculado na leitura; fora da tabela de metadados
 
 
 # ---------- tabela no banco (Neon). Sem texto do arquivo. ----------
@@ -149,16 +162,23 @@ tabela = Table(
     Column("resposta", Text),
     Column("fatos_ferias", _JSON),  # só números e datas; ver app/services/triagem/ferias.py
 )
+arquivos = Table(
+    "triagem_arquivo", _meta,
+    Column("envio_id", String(32), ForeignKey("triagem_documento.id"), primary_key=True),
+    Column("conteudo", LargeBinary, nullable=False),
+)
+_trava_engine = threading.Lock()
 
 
 @lru_cache
 def _engine() -> Engine:
-    engine = criar_engine(url_configurada())
-    _meta.create_all(engine)  # com o papel restrito do Neon, só confere que a tabela existe
+    with _trava_engine:
+        engine = criar_engine(url_configurada())
+        _meta.create_all(engine)  # com o papel restrito, só confere as tabelas
     return engine
 
 
-def _gravar_no_banco(linha: dict) -> None:
+def _gravar_no_banco(linha: dict, conteudo: bytes | None = None) -> None:
     engine = _engine()
     inserir = insert_postgres if engine.dialect.name == "postgresql" else insert_sqlite
     comando = inserir(tabela).values(**linha)
@@ -167,6 +187,9 @@ def _gravar_no_banco(linha: dict) -> None:
         set_={c: comando.excluded[c] for c in linha if c != "id"})
     with engine.begin() as conexao:
         conexao.execute(comando)
+        if conteudo is not None:
+            conexao.execute(inserir(arquivos).values(
+                envio_id=linha["id"], conteudo=conteudo).on_conflict_do_nothing())
 
 
 # ---------- estado em memória ----------
@@ -187,18 +210,15 @@ def _fila_banco() -> ThreadPoolExecutor:
     return ThreadPoolExecutor(max_workers=1, thread_name_prefix="triagem-banco")  # mantém a ordem
 
 
-def _persistir(envio: Envio) -> None:
-    """Grava uma cópia em segundo plano. Falha do banco vira log; a memória continua valendo."""
+def _persistir(envio: Envio, conteudo: bytes | None = None) -> None:
+    """Só confirma o estado depois do commit; falha nunca vira sucesso para o site."""
     linha = asdict(envio)
-
-    def tarefa() -> None:
-        try:
-            _gravar_no_banco(linha)
-        except Exception as erro:  # noqa: BLE001 - a mensagem do driver pode trazer host
-            log.error("Falha ao gravar a triagem %s no banco: %s", linha["id"],
-                      type(erro).__name__)
-
-    _fila_banco().submit(tarefa)
+    linha.pop("arquivo_disponivel")
+    try:
+        _fila_banco().submit(_gravar_no_banco, linha, conteudo).result()
+    except Exception as erro:  # noqa: BLE001 - não expor credenciais do driver
+        log.error("Falha ao gravar a triagem %s no banco: %s", envio.id, type(erro).__name__)
+        raise PersistenciaIndisponivel from None
 
 
 def _guardar(envio: Envio) -> None:
@@ -216,15 +236,40 @@ def _guardar(envio: Envio) -> None:
 def obter(envio_id: str) -> Envio | None:
     if not ID_VALIDO.match(envio_id):
         return None
-    with _trava:
-        envio = _itens.get(envio_id)
-        return replace(envio) if envio else None
+    with _engine().connect() as conexao:
+        linha = conexao.execute(_consulta().where(tabela.c.id == envio_id)).mappings().first()
+    return _do_banco(linha) if linha else None
 
 
 def listar() -> list[Envio]:
-    with _trava:
-        return sorted((replace(e) for e in _itens.values()), key=lambda e: e.criado_em,
-                      reverse=True)
+    with _engine().connect() as conexao:
+        linhas = conexao.execute(_consulta().order_by(tabela.c.criado_em.desc())).mappings().all()
+    return [_do_banco(linha) for linha in linhas]
+
+
+def _consulta():
+    return select(tabela, exists().where(arquivos.c.envio_id == tabela.c.id)
+                  .label("arquivo_disponivel"))
+
+
+def _do_banco(linha) -> Envio:
+    envio = Envio(**dict(linha))
+    for campo in ("criado_em", "decidido_em"):
+        momento = getattr(envio, campo)
+        if momento is not None and momento.tzinfo is None:
+            setattr(envio, campo, momento.replace(tzinfo=UTC))
+    if envio.criado_em < datetime.now(UTC) - timedelta(days=get_settings().retencao_envios_dias):
+        _eliminar_dados_pessoais(envio, "Dados pessoais eliminados: prazo de retenção.")
+        envio.arquivo_disponivel = False
+    return envio
+
+
+def conteudo(envio: Envio) -> bytes | None:
+    if envio.criado_em < datetime.now(UTC) - timedelta(days=get_settings().retencao_envios_dias):
+        return None
+    with _engine().connect() as conexao:
+        return conexao.execute(select(arquivos.c.conteudo)
+                               .where(arquivos.c.envio_id == envio.id)).scalar()
 
 
 def limpar() -> None:
@@ -317,6 +362,30 @@ def quem_aprova(envio: Envio) -> str:
     return "gestor ou sênior da " + " ou da ".join(setores_)
 
 
+def decidir(envio: Envio, persona: Persona, status: str, resposta: str = "") -> Envio:
+    """Confirma a sugestão ou recusa. Compare-and-set impede duas decisões simultâneas."""
+    if not e_aprovador(persona, envio):
+        raise PermissionError
+    if envio.status not in STATUS_TRIADO or envio.aprovacao != "pendente":
+        raise DecisaoConflitante
+    dados = {"aprovacao": status, "decidido_por": persona.id, "decidido_em": datetime.now(UTC),
+             "resposta": resposta, "mensagem": "Confirmado: documento aprovado."
+             if status == "aprovado" else "Documento recusado na revisão.",
+             "nivel_final": envio.nivel_sugerido if status == "aprovado" else None,
+             "setores_finais": envio.setores_sugeridos if status == "aprovado" else []}
+    with _engine().begin() as conexao:
+        resultado = conexao.execute(update(tabela).where(
+            tabela.c.id == envio.id, tabela.c.aprovacao == "pendente")
+            .values(**dados).returning(tabela.c.id)).first()
+        if resultado is None:
+            raise DecisaoConflitante
+    decidido = replace(envio, **dados)
+    _guardar(decidido)
+    audit_log.registrar(persona.id, "decisao_envio", "permitido", status,
+                        [envio.id], decidido.nivel_final or "-")
+    return decidido
+
+
 # ---------- recebimento e triagem ----------
 def nome_seguro(nome: str) -> str:
     """Só o nome do arquivo, sem pasta nem caractere de controle."""
@@ -337,8 +406,8 @@ def criar(persona: Persona, nome: str, tamanho: int) -> Envio:
 
 def recusar(envio: Envio, motivo: str) -> Envio:
     envio.status, envio.mensagem = "failed", motivo
-    _guardar(envio)
     _persistir(envio)
+    _guardar(envio)
     audit_log.registrar(envio.enviado_por, "envio", "bloqueado", "triagem", [envio.id], "-")
     return replace(envio)
 
@@ -363,14 +432,20 @@ def enfileirar(envio: Envio, caminho: Path) -> Envio:
             raise FilaCheia
         _na_fila += 1
     envio.status, envio.mensagem = "processing", "Triagem em andamento."
-    _guardar(envio)
     try:
+        _persistir(envio, caminho.read_bytes())
+        envio.arquivo_disponivel = True
+        _guardar(envio)
         tarefa = _fila().submit(_processar, envio.id, caminho)
-    except RuntimeError:  # fila já encerrada (desligando)
+    except BaseException as erro:
         caminho.unlink(missing_ok=True)
         with _trava:
             _na_fila -= 1
-        raise FilaCheia from None
+        if isinstance(erro, PersistenciaIndisponivel):
+            raise
+        if isinstance(erro, RuntimeError):  # fila já encerrada
+            raise FilaCheia from None
+        raise
     with _trava:
         _temporarios[tarefa] = caminho
     tarefa.add_done_callback(_ao_terminar)
@@ -438,14 +513,13 @@ def _processar(envio_id: str, caminho: Path) -> None:
             envio.status, envio.mensagem = "failed", "Não foi possível processar o arquivo."
         else:
             _aplicar_triagem(envio, triagem)
-        with _trava:
-            _itens[envio_id] = envio
         _persistir(envio)
+        _guardar(envio)
         audit_log.registrar(envio.enviado_por, "envio",
                             "permitido" if envio.status != "failed" else "bloqueado",
                             f"triagem:{envio.status}", [envio.id], envio.nivel_sugerido or "-")
     finally:
-        caminho.unlink(missing_ok=True)  # o arquivo nunca fica no servidor
+        caminho.unlink(missing_ok=True)  # só a cópia de trabalho; o original está no banco
         with _trava:
             _na_fila -= 1
 
@@ -462,14 +536,19 @@ def _eliminar_dados_pessoais(envio: Envio, motivo: str) -> None:
 def expurgar(agora: datetime | None = None) -> int:
     """Passado o prazo de retenção, elimina os dados pessoais dos envios antigos."""
     limite = (agora or datetime.now(UTC)) - timedelta(days=get_settings().retencao_envios_dias)
-    vencidos = []
+    with _engine().begin() as conexao:
+        vencidos = list(conexao.execute(update(tabela).where(
+            tabela.c.criado_em < limite, tabela.c.nome_arquivo != EXPURGADO).values(
+                fatos_ferias=None, nome_arquivo=EXPURGADO, resposta=None,
+                mensagem="Dados pessoais eliminados: prazo de retenção.")
+            .returning(tabela.c.id)).scalars())
+        conexao.execute(delete(arquivos).where(arquivos.c.envio_id.in_(
+            select(tabela.c.id).where(tabela.c.criado_em < limite))))
     with _trava:
-        for envio in _itens.values():
-            if envio.criado_em < limite and envio.nome_arquivo != EXPURGADO:
+        for envio_id in vencidos:
+            if envio := _itens.get(envio_id):
                 _eliminar_dados_pessoais(envio, "Dados pessoais eliminados: prazo de retenção.")
-                vencidos.append(replace(envio))
-    for envio in vencidos:
-        _persistir(envio)
+                envio.arquivo_disponivel = False
     return len(vencidos)
 
 
@@ -484,16 +563,6 @@ def eliminar_a_pedido(envio_id: str) -> str:
     banco; a API larga a cópia em memória ao reiniciar, porque restaurar() relê do banco.
     """
     motivo = "Dados pessoais eliminados a pedido do titular."
-    with _trava:
-        envio = _itens.get(envio_id)
-        if envio is not None:
-            if envio.status in EM_TRIAGEM:
-                return "em_triagem"
-            _eliminar_dados_pessoais(envio, motivo)
-            copia = replace(envio)
-    if envio is not None:
-        _persistir(copia)  # mesma fila das outras gravações deste envio: fica por último
-        return "eliminado"
     with _engine().begin() as conexao:
         status = conexao.execute(select(tabela.c.status).where(tabela.c.id == envio_id)).scalar()
         if status is None:
@@ -502,6 +571,11 @@ def eliminar_a_pedido(envio_id: str) -> str:
             return "em_triagem"
         conexao.execute(update(tabela).where(tabela.c.id == envio_id).values(
             fatos_ferias=None, nome_arquivo=EXPURGADO, resposta=None, mensagem=motivo))
+        conexao.execute(delete(arquivos).where(arquivos.c.envio_id == envio_id))
+    with _trava:
+        if envio := _itens.get(envio_id):
+            _eliminar_dados_pessoais(envio, motivo)
+            envio.arquivo_disponivel = False
     return "eliminado"
 
 
@@ -513,9 +587,10 @@ def restaurar() -> int:
                                  .limit(MAX_EM_MEMORIA)).mappings().all()
     restaurados = 0
     for linha in linhas:
-        envio = Envio(**dict(linha))
-        if envio.criado_em.tzinfo is None:  # SQLite não guarda o fuso
-            envio.criado_em = envio.criado_em.replace(tzinfo=UTC)
+        envio = _do_banco(linha)
+        with _trava:
+            if envio.id in _itens:
+                continue
         if envio.status in ("waiting", "processing"):
             envio.status = "failed"
             envio.mensagem = "Processamento interrompido pela reinicialização. Envie de novo."
@@ -558,8 +633,8 @@ def esperar(timeout_s: float = 30.0) -> bool:
 
 def encerrar() -> None:
     """Cancela o que ainda não começou (_ao_terminar apaga esses temporários). O que está rodando
-    termina e apaga o próprio temporário."""
-    _fila().shutdown(wait=False, cancel_futures=True)
+    termina e confirma a gravação antes de encerrar a fila do banco."""
+    _fila().shutdown(wait=True, cancel_futures=True)
     _fila_banco().shutdown(wait=True)
     _fila.cache_clear()
     _fila_banco.cache_clear()
@@ -581,6 +656,7 @@ if __name__ == "__main__":
             with engine.begin() as c:
                 c.execute(text(f"REVOKE ALL ON triagem_documento FROM {papel}"))
                 c.execute(text(f"GRANT SELECT, INSERT, UPDATE ON triagem_documento TO {papel}"))
+                c.execute(text(f"GRANT SELECT, INSERT, DELETE ON triagem_arquivo TO {papel}"))
     except Exception as erro:  # noqa: BLE001 - a mensagem do driver pode trazer host e usuário
         raise SystemExit(f"Falha ao preparar a tabela: {type(erro).__name__}.") from None
-    print(f"Tabela 'triagem_documento' pronta; {papel} com SELECT, INSERT e UPDATE.")
+    print(f"Tabelas 'triagem_documento' e 'triagem_arquivo' prontas para {papel}.")

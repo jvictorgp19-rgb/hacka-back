@@ -53,22 +53,21 @@ o schema `answerSchema` não tem esse campo.
 documento não consegue escolher o setor dono dele. Exemplo: `ana` não vê nada da GESUC, então
 não consegue pedir acesso ao contrato de coworking pela tela.
 
-## 5. Aprovação e eliminação de envios sem tela
+## 5. Eliminação de envios sem tela
 
 O front envia arquivos (`POST /document-jobs`) e consulta o estado (`GET /document-jobs/{id}`),
-mas não tem tela para:
+mas ainda não tem tela para quem enviou pedir a eliminação dos dados pessoais antes do prazo
+(LGPD art. 18, VI). Até existir a tela, o pedido vai pelo encarregado (LGPD art. 41), que roda
+`python scripts/eliminar_envio.py <id>`. A eliminação automática por `RETENCAO_ENVIOS_DIAS` continua.
 
-- o aprovador decidir o envio que exige aprovação (de júnior, sigiloso ou com confiança baixa).
-  O envio fica `pendente`, visível só para quem enviou e para os aprovadores;
-- quem enviou pedir a eliminação dos dados pessoais antes do prazo (LGPD art. 18, VI). Até
-  existir a tela, o pedido vai pelo encarregado (LGPD art. 41), que roda
-  `python scripts/eliminar_envio.py <id>`. A eliminação automática por
-  `RETENCAO_ENVIOS_DIAS` continua.
-
-As rotas de decisão e de eliminação saíram do back junto com as outras que o front não chama.
-Voltam quando a tela existir.
+A eliminação continua pelo script; a aprovação já tem rota e botão.
 
 ## Resolvido
+
+- **Envios desapareciam ao sair do Acervo.** O front agora mantém a fila no workspace e
+  recupera o histórico paginado do banco ao abrir a tela. O backend só confirma o recebimento
+  após salvar o registro e o original. O original tem download autorizado. O botão de aprovação
+  usa `canApprove` e a decisão fica registrada no banco com responsável e data.
 
 - **PDFs sigilosos em `public/docs_acervo/`.** O modo demo apontava para PDFs servidos pelo Next
   sem controle de acesso, inclusive os sigilosos (LGPD art. 46; LAI art. 25). Saíram do front com

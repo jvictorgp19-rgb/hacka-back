@@ -34,7 +34,6 @@ def test_rotas_que_o_front_nao_chama_nao_existem(client):
     envio = "0" * 32
     for metodo, rota in (("get", "/health"), ("get", "/analyses/charts?panel=acervo"),
                          ("post", "/identity"), ("post", "/identity/sair"),
-                         ("get", "/document-jobs"), ("post", f"/document-jobs/{envio}/decision"),
                          ("post", f"/document-jobs/{envio}/forget")):
         assert getattr(client, metodo)(rota, headers=P["ana"]).status_code in (404, 405), rota
 

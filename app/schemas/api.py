@@ -147,6 +147,14 @@ class UploadItem(BaseModel):
     decidedAt: str | None = None
     response: str | None = None
     ferias: FatosFerias | None = None  # só para quem enviou, os aprovadores e a GEPEC
+    saved: bool = True
+    fileAvailable: bool = False
+    canApprove: bool = False
+
+
+class UploadDecision(_Entrada):
+    status: Literal["aprovado", "recusado"]
+    response: str = Field(default="", max_length=1000)
 
 
 # ---------- /identity (hacka-front: identitySchema) ----------
