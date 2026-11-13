@@ -24,15 +24,15 @@ class _Pedido:
 
 
 _PEDIDOS = [
-    _Pedido("ana", "GGC", AccessRequestItem(
+    _Pedido("ana", "GEPEC", AccessRequestItem(
         id="REQ-2026-089",
         solicitante="Ana (Analista / Empregada)",
         papelSolicitante="Empregada - RBAC Interna",
-        dominioDono=NOMES_DOMINIO["GGC"],
-        documentoAlvo="Conteúdo restrito do domínio GGC",
+        dominioDono=NOMES_DOMINIO["GEPEC"],
+        documentoAlvo="Conteúdo sigiloso do setor GEPEC",
         perguntaOriginal="Qual o detalhamento de auditoria da folha para ressarcimento de "
                          "despesas em cancelamento de férias?",
-        nivelExigido="Restrita",
+        nivelExigido="Sigilosa",
         status="Pendente",
         timestampSolicitacao="12/11/2026 11:42:10",
     )),

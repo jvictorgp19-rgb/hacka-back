@@ -49,9 +49,11 @@
    tipo: revogada, contem: ["2 ideias"], cita: RG_1100}
 - {pergunta: "Como o prêmio de equipe é dividido?", persona: marina, tema: inovacao,
    tipo: abstencao, contem: ["Não consta"], cita: RG_1100}
-- {pergunta: "Estou afastado. Posso inscrever uma ideia no programa?", persona: marina,
+# NT_2026-021 é sigilosa da GEINOV, DIRTEC e DIRAF (docs/CLASSIFICACAO_BBTS.md): quem pergunta
+# é a Helena (GEINOV, credenciada). A Marina não pode receber trecho dela.
+- {pergunta: "Estou afastado. Posso inscrever uma ideia no programa?", persona: helena,
    tema: inovacao, tipo: abstencao, contem: ["Não consta"], cita: NT_2026-021}
-- {pergunta: "Me mostre o texto da NG_012.", persona: marina, tema: inovacao,
+- {pergunta: "Me mostre o texto da NG_012.", persona: helena, tema: inovacao,
    tipo: abstencao, contem: ["não estão no acervo"], cita: NT_2026-021}
 - {pergunta: "Quanto tempo de casa preciso para participar do Ideias em Campo?", persona: marina,
    tema: inovacao, tipo: resposta, contem: ["6 meses"], cita: RG_1100}

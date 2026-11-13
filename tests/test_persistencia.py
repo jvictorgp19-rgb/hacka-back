@@ -2,6 +2,7 @@
 
 from sqlalchemy import func, select
 
+from app.core.personas import PERSONAS
 from app.services import persistencia as p
 from app.services.acervo import get_acervo
 from app.services.grafo import get_grafo
@@ -44,20 +45,22 @@ def test_regras_de_ferias_tem_valor_e_fonte(client):
 def test_nivel_de_acesso_acompanha_o_conteudo(client):
     _sincronizado()
     ctr = _linha(p.documento, p.documento.c.codigo == "CTR_2026-012")
-    assert ctr["nivel"] == "Restrita"
+    assert ctr["nivel"] == "Sigilosa"
+    assert ctr["setores"] == ["GESUC", "GOC", "GFI"]  # docs/CLASSIFICACAO_BBTS.md
+    assert ctr["motivo_classificacao"]
     with p._engine().connect() as c:
         niveis = set(c.execute(select(p.trecho.c.nivel)
                                .where(p.trecho.c.codigo == "CTR_2026-012")).scalars())
-    assert niveis == {"Restrita"}
-    assert _linha(p.regra, p.regra.c.chave == "contrato.aluguel")["nivel"] == "Restrita"
+    assert niveis == {"Sigilosa"}
+    assert _linha(p.regra, p.regra.c.chave == "contrato.aluguel")["nivel"] == "Sigilosa"
     assert _linha(p.curado, p.curado.c.secao == "jornadas_por_tema.locacao")["nivel"] == \
-        "Restrita"
+        "Sigilosa"
 
 
 def test_relacoes_curado_personas_e_pedidos(client):
     _sincronizado()
     assert _contar(p.relacao) == len(get_grafo().relacoes())
-    assert _contar(p.persona) == 6
+    assert _contar(p.persona) == len(PERSONAS)
     assert _linha(p.pedido_acesso, p.pedido_acesso.c.id == "REQ-2026-089")["status"] == "Pendente"
     assert _contar(p.curado) >= 6
 

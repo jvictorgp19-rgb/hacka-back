@@ -10,6 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
+from app.core.acl import Acesso
 from app.core.auth import Sujeito, resolver_sujeito, sujeito_da_requisicao
 from app.core.config import get_settings
 from app.core.limites import checar_taxa
@@ -60,7 +61,7 @@ def docs(sujeito: SujeitoDep, response: Response,
     """Catálogo do acervo, só com o que o sujeito pode ver."""
     _sem_cache(response)
     acervo = get_acervo()
-    visiveis = {d.codigo for d in acervo.visiveis(sujeito.nivel, tema)}
+    visiveis = {d.codigo for d in acervo.visiveis(sujeito.acesso, tema)}
     seed = acervo.seed
     return DocsResponse(
         vigentes=[d for d in seed["documentos_acervo"] if d["codigo"] in visiveis],
@@ -71,10 +72,10 @@ def docs(sujeito: SujeitoDep, response: Response,
     )
 
 
-@lru_cache(maxsize=32)
-def _projecao(nivel: str, tema: str | None) -> GrafoResponse:
-    """A projeção depende só de nível e tema (ambos de conjunto fechado): cache pequeno."""
-    return get_grafo().projetar(nivel, tema)
+@lru_cache(maxsize=64)
+def _projecao(acesso: Acesso, tema: str | None) -> GrafoResponse:
+    """A projeção depende só do perfil de acesso e do tema (conjuntos fechados): cache pequeno."""
+    return get_grafo().projetar(acesso, tema)
 
 
 @router.get("/grafo", response_model=GrafoResponse, response_model_exclude_none=True)
@@ -83,7 +84,7 @@ def grafo(sujeito: SujeitoDep, request: Request, response: Response,
     """Mapa do acervo: documentos, versões e relações, na visão do nível de quem consulta."""
     checar_taxa(request, sujeito.id, "grafo", get_settings().rate_grafo_per_min)
     _sem_cache(response)
-    return _projecao(sujeito.nivel, tema)
+    return _projecao(sujeito.acesso, tema)
 
 
 @router.get("/radar", response_model=list[RadarEvent])
@@ -110,7 +111,7 @@ def _deck_autorizado(tema: str, sujeito: Sujeito, request: Request) -> ReportRes
     checar_taxa(request, sujeito.id, "reports", get_settings().rate_reports_per_min)
     acervo = get_acervo()
     fontes = reports.FONTES[tema]
-    if not acervo.autorizado(fontes, sujeito.nivel):
+    if not acervo.autorizado(fontes, sujeito.acesso):
         audit_log.registrar(sujeito.id, "relatorio", "bloqueado", tema, [], sujeito.nivel)
         raise HTTPException(403, "Seu perfil não tem acesso às fontes deste relatório.")
     audit_log.registrar(sujeito.id, "relatorio", "permitido", tema, fontes,

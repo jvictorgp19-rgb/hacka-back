@@ -6,7 +6,7 @@ API da solução do hackathon, **Desafio 2 — Plataforma de Inteligência Empre
 O Raiz IQ é um copiloto sobre as normas internas da empresa: férias, programa de inovação e
 contrato de locação de coworking. Ele responde com citação de documento, item e versão. Também
 calcula prazos e alçadas sem LLM, avisa quando uma regra foi revogada e se abstém quando o acervo
-não cobre a pergunta. Por fim, respeita o nível de acesso de quem pergunta.
+não cobre a pergunta. Por fim, respeita o setor e a habilitação de quem pergunta.
 
 > O acervo é **sintético**: "A ACME Tecnologia e Serviços é uma empresa fictícia". O modo
 > `AUTH_MODE=demo` é uma simulação de controle de acesso e só deve rodar com esses dados.
@@ -30,7 +30,7 @@ uvicorn app.main:app --reload      # http://localhost:8000
 - Saúde: http://localhost:8000/health.
 - No primeiro start, a API lê os PDFs de `acervo/bronze/` e grava o cache em `data/silver.json`.
 
-Teste rápido, como a persona Ana (nível Interna):
+Teste rápido, como a persona Ana (setor GOP, habilitação Interna):
 
 ```bash
 curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
@@ -53,14 +53,28 @@ Formatos, identidade, limites e ajustes pedidos ao front: [docs/CONTRATO.md](doc
 
 ## Identidade e acesso
 
-O nível de acesso nunca vem do cliente. O cliente informa só o id da persona; o servidor sabe o
-papel e o nível (`app/core/personas.py`).
+O acesso nunca vem do cliente. O cliente informa só o id da persona; o servidor sabe o setor, o
+cargo e a habilitação (`app/core/personas.py`).
 
-| Persona | Nível |
-|---|---|
-| `ana`, `carlos`, `marina` | Interna |
-| `rafael` | Restrita |
-| `diretora_diraf`, `curadora_ggc` | Sigilosa |
+A classificação segue [docs/CLASSIFICACAO_BBTS.md](docs/CLASSIFICACAO_BBTS.md):
+
+- **Interno**: qualquer pessoa identificada vê.
+- **Sigiloso**: só vê quem cumpre duas condições (LAI art. 25, § 1º):
+  1. o setor da pessoa está na lista do documento (necessidade de conhecer);
+  2. a pessoa tem habilitação Sigilosa (credenciamento).
+
+| Persona | Setor | Cargo | Habilitação | Sigilosos que vê |
+|---|---|---|---|---|
+| `ana` | GOP | Analista | Interna | nenhum |
+| `carlos` | GOP | Gestor | Interna | nenhum |
+| `marina` | GOC | Proponente | Interna | nenhum (GOC, mas sem credenciamento) |
+| `rafael` | GOC | Fiscal técnico (sênior) | Sigilosa | NT_2026-018, CTR_2026-012 |
+| `sergio` | GESUC | Analista de contratos | Sigilosa | NT_2026-018, CTR_2026-012 |
+| `fernanda` | GFI | Analista financeira | Sigilosa | CTR_2026-012 |
+| `bruno` | GEINOV | Desenvolvedor júnior | Interna | nenhum |
+| `helena` | GEINOV | Tech lead (curadora) | Sigilosa | NT_2026-021 |
+| `diretora_diraf` | DIRAF | Diretora | Sigilosa | NT_2026-021, NT_2026-018 |
+| `curadora_ggc` | GEPEC | Curadora | Sigilosa | versões substituídas, dossiê da folha |
 
 - `AUTH_MODE=demo` (padrão): `personaId` no body, header `X-Persona-Id` ou query `?personaId=`.
   Sem persona válida, só o nível Pública: listas vazias.
@@ -211,12 +225,12 @@ A avaliação mede acerto, citação correta e abstenção/bloqueio corretos.
 app/
 ├─ main.py              # FastAPI, CORS, limite de corpo, /health, carga do acervo
 ├─ api/routes/          # rotas do contrato com o front
-├─ core/                # config, níveis de acesso, personas, autenticação, limites
+├─ core/                # config, acesso por setor, setores, personas, autenticação, limites
 ├─ schemas/             # contrato JSON (camelCase, igual ao front)
 ├─ seed/                # manifesto do acervo e JSON curado do front
 └─ services/
    ├─ ingest/           # PDF -> cabeçalho -> trechos (Silver)
-   ├─ rag/              # índice BM25 por nível de acesso
+   ├─ rag/              # índice BM25 por perfil de acesso (setor + habilitação)
    ├─ llm/              # cliente OpenAI-compatible
    ├─ agent/            # intenções, guardas e roteador de custo do chat
    ├─ calculators/      # férias, alçadas, contrato, calendário de dias úteis

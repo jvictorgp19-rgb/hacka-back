@@ -5,7 +5,7 @@ Achados calculados a partir do Silver (cabeçalhos e trechos), não escritos à 
 - documento que cita outro com data posterior à sua (anacronismo);
 - versão substituída cujo cabeçalho ainda mostra vigência futura.
 
-Acesso: só curadores e nível Sigilosa (visão de governança). Os demais recebem lista vazia.
+Acesso: só curadoria e diretoria (visão de governança). Os demais recebem lista vazia.
 """
 
 import re
@@ -25,7 +25,7 @@ def _rotulo(doc, cab: dict) -> str:
 
 
 def auditar(acervo: Acervo, sujeito: Sujeito, hoje: date) -> list[IngestAuditFinding]:
-    governanca = sujeito.persona and (sujeito.persona.cura_dominios or sujeito.nivel == "Sigilosa")
+    governanca = sujeito.persona is not None and sujeito.persona.governanca
     if not governanca:
         return []
 

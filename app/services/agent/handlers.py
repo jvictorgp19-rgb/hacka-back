@@ -146,7 +146,7 @@ def _alcada(p: Parametros) -> Parcial:
                 f"**{primeiro.aprovador or 'não consta nas fontes'}**.")
     parcial = Parcial(resposta, bullets, list(dict.fromkeys(fontes)), "alcada")
     if sem_resposta is not None:
-        parcial.abster_dominio = "GCO"
+        parcial.abster_dominio = "GESUC"
         parcial.lacuna = "Aprovador de gastos gerais acima de R$ 120.000,00 (NG_012)."
         parcial.detalhes = ["A NT_2026-018 (Anexo F) cita só as faixas de gerente e de diretor."]
     return parcial

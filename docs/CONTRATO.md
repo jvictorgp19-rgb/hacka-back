@@ -40,16 +40,26 @@ Os formatos abaixo espelham os tipos TypeScript do `hacka-front`, branch `lana`
 
 ## Identidade: como o back sabe quem pergunta
 
-O nível de acesso **nunca** vem do cliente. O cliente informa só o id da persona; papel e nível
-saem do cadastro no servidor (`app/core/personas.py`).
+O acesso **nunca** vem do cliente. O cliente informa só o id da persona; setor, cargo e
+habilitação saem do cadastro no servidor (`app/core/personas.py`).
 
 | `AUTH_MODE` | Como identificar | Sem identificação |
 |---|---|---|
 | `demo` (padrão) | `personaId` no body, **ou** header `X-Persona-Id`, **ou** query `?personaId=` | Vê só o nível Pública: listas vazias |
 | `token` | `Authorization: Bearer <token>` (emitir: `python -m app.core.auth <personaId>`) | `401` |
 
-Personas: `ana`, `carlos`, `marina` (Interna) · `rafael` (Restrita) · `diretora_diraf`,
-`curadora_ggc` (Sigilosa).
+| Persona | Setor | Cargo | Habilitação | Sigilosos que vê |
+|---|---|---|---|---|
+| `ana` | GOP | Analista | Interna | nenhum |
+| `carlos` | GOP | Gestor | Interna | nenhum |
+| `marina` | GOC | Proponente | Interna | nenhum (GOC, mas sem credenciamento) |
+| `rafael` | GOC | Fiscal técnico (sênior) | Sigilosa | NT_2026-018, CTR_2026-012 |
+| `sergio` | GESUC | Analista de contratos | Sigilosa | NT_2026-018, CTR_2026-012 |
+| `fernanda` | GFI | Analista financeira | Sigilosa | CTR_2026-012 |
+| `bruno` | GEINOV | Desenvolvedor júnior | Interna | nenhum |
+| `helena` | GEINOV | Tech lead (curadora) | Sigilosa | NT_2026-021 |
+| `diretora_diraf` | DIRAF | Diretora | Sigilosa | NT_2026-021, NT_2026-018 |
+| `curadora_ggc` | GEPEC | Curadora | Sigilosa | versões substituídas, dossiê da folha |
 
 O modo `demo` é uma **simulação de RBAC**: qualquer pessoa pode escolher qualquer persona.
 Use só com o acervo sintético. Com dados reais, use `AUTH_MODE=token` atrás de HTTPS.
@@ -70,16 +80,22 @@ Use só com o acervo sintético. Com dados reais, use `AUTH_MODE=token` atrás d
 
 ## Controle de acesso
 
-- Níveis: Pública < Interna < Restrita < Sigilosa.
-- Classificação por documento em `app/seed/manifesto.json`. O `#interna` do PDF nunca reduz o piso
-  do manifesto. Para a demo, `CTR_2026-012` e `NT_2026-018` estão como **Restrita**.
-- O filtro acontece antes da busca: o índice de cada nível só contém o que aquele nível pode ver.
-  O LLM nunca recebe trecho proibido.
+A classificação segue [docs/CLASSIFICACAO_BBTS.md](CLASSIFICACAO_BBTS.md):
+
+- **Interno**: qualquer pessoa identificada vê.
+- **Sigiloso**: só vê quem cumpre duas condições (LAI art. 25, § 1º):
+  1. o setor da pessoa está na lista do documento (necessidade de conhecer);
+  2. a pessoa tem habilitação Sigilosa (credenciamento).
+- Classificação e setores por documento em `app/seed/manifesto.json`, gerado por
+  `scripts/gerar_manifesto.py`. O `#interna` impresso no PDF nunca reduz a classificação.
+- Sigilosos: `NT_2026-021` (GEINOV, DIRTEC, DIRAF), `NT_2026-018` (GESUC, GOC, DIRAF),
+  `CTR_2026-012` (GESUC, GOC, GFI) e as versões substituídas (só GEPEC).
+- O filtro acontece antes da busca: o índice de cada perfil de acesso (setor + habilitação) só
+  contém o que aquele perfil pode ver. O LLM nunca recebe trecho proibido.
 - Calculadoras, radar e relatórios declaram as fontes e passam pela mesma checagem.
-- `rbacBlock` revela só a **área dona** de conteúdo Restrito. Documento Sigiloso não tem a
-  existência revelada.
-- **Exceção aceita (GRAFO-21):** para conteúdo Restrito, o chat confirma que existe algo acima do
-  nível da pessoa e diz qual área cuida do pedido de acesso. É de propósito: é o passo 7 da demo
+- `rbacBlock` revela só o **setor dono** do conteúdo sigiloso, nunca código, título ou trecho.
+- **Exceção aceita (GRAFO-21):** o chat confirma que existe algo fora do alcance da pessoa e diz
+  qual setor cuida do pedido de acesso. É de propósito: é o passo 7 da demo
   (pedir acesso). Nenhuma outra rota faz isso. O `/grafo` trata documento invisível como
   inexistente.
 - Não há cache de respostas. Toda resposta sai com `Cache-Control: private, no-store`.

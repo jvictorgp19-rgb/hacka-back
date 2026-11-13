@@ -15,7 +15,7 @@ import time
 from datetime import date
 from functools import lru_cache
 
-from app.core.acl import NIVEL_ANONIMO, ordem
+from app.core.acl import Acesso
 from app.core.auth import Sujeito
 from app.core.config import get_settings
 from app.schemas.api import (
@@ -70,22 +70,22 @@ def _nome(dominio: str) -> str:
 
 
 def _bloqueio(dominio: str) -> RbacBlock:
-    """Revela só a área dona. Nunca título, código ou conteúdo do documento restrito."""
+    """Revela só o setor dono. Nunca título, código ou conteúdo do documento sigiloso."""
     return RbacBlock(
         dominioResponsavel=_nome(dominio),
-        nivelExigido="Restrita",
-        mensagem=f"Parte da resposta requer autorização da {dominio}. Solicite uma resposta "
-                 "curada à área.",
+        nivelExigido="Sigilosa",
+        mensagem=f"Parte da resposta é sigilosa da {dominio}. Solicite uma resposta curada ao "
+                 "setor.",
     )
 
 
-def _dominio_das_fontes(acervo: Acervo, fontes: list[str], nivel: str) -> str | None:
-    """Área dona da primeira fonte RESTRITA que falta ao sujeito. Sigilosa não é revelada."""
-    if nivel == NIVEL_ANONIMO:
+def _dominio_das_fontes(acervo: Acervo, fontes: list[str], acesso: Acesso) -> str | None:
+    """Setor dono da primeira fonte que o sujeito não pode ver. Anônimo não recebe nada."""
+    if not acesso.identificado:
         return None
     for codigo in fontes:
         doc = acervo.vigente(codigo)
-        if doc and ordem(doc.nivel) > ordem(nivel) and doc.nivel == "Restrita":
+        if doc and not acervo.pode(acesso, doc):
             return doc.dominio
     return None
 
@@ -129,7 +129,7 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
     inicio = time.perf_counter()
     cfg = get_settings()
     acervo, indice = get_acervo(), get_indice()
-    nivel = sujeito.nivel
+    nivel, acesso = sujeito.nivel, sujeito.acesso
     tema = req.tema if req.tema in SUGESTOES else "ferias"
     p = extrair(req.message, hoje)
 
@@ -146,7 +146,7 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
 
     # 1. Lacuna conhecida
     lacuna = guards.lacuna_conhecida(p)
-    if lacuna and acervo.autorizado(lacuna.fontes, nivel):
+    if lacuna and acervo.autorizado(lacuna.fontes, acesso):
         answer, fontes, intent = lacuna.resposta, lacuna.fontes, "lacuna"
         bullets = list(lacuna.detalhes)
         abstencao = abster(lacuna.dominio, lacuna.lacuna, lacuna.detalhes)
@@ -156,8 +156,8 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
         for h in HANDLERS:
             if not h.casa(p, tema):
                 continue
-            if not acervo.autorizado(h.fontes, nivel):
-                dominio = _dominio_das_fontes(acervo, h.fontes, nivel)
+            if not acervo.autorizado(h.fontes, acesso):
+                dominio = _dominio_das_fontes(acervo, h.fontes, acesso)
                 if dominio:
                     bloqueio, intent, resultado = _bloqueio(dominio), h.intent, "bloqueado"
                     answer = "Essa informação tem acesso restrito."
@@ -178,7 +178,7 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
 
     # 3. Regra revogada (vale junto com a calculadora ou sozinha)
     antiga = guards.regra_revogada(p)
-    if antiga and acervo.autorizado(antiga.fontes, nivel) and not bloqueio:
+    if antiga and acervo.autorizado(antiga.fontes, acesso) and not bloqueio:
         revogada = RevokedAlert(codigo=antiga.codigo, versaoRevogada=antiga.versao_revogada,
                                 substituidoPor=antiga.substituido_por, pegadinha=antiga.pegadinha)
         if not answer:
@@ -189,11 +189,10 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
     # 4. RAG (+ LLM)
     if not answer:
         intent = "rag"
-        trechos = [t for t in indice.buscar(guards.mascarar(req.message), nivel, k=4, tema=tema)
+        trechos = [t for t in indice.buscar(guards.mascarar(req.message), acesso, k=4, tema=tema)
                    if t.score >= SCORE_MINIMO]
         melhor = trechos[0].score if trechos else 0.0
-        dominio = indice.dominio_bloqueado(req.message, nivel, melhor) \
-            if nivel != NIVEL_ANONIMO else None
+        dominio = indice.dominio_bloqueado(req.message, acesso, melhor)
         if dominio:
             bloqueio, resultado = _bloqueio(dominio), "bloqueado"
         if trechos:
@@ -210,7 +209,7 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
         if not trechos:
             if bloqueio:
                 answer = "Essa informação tem acesso restrito."
-            elif nivel == NIVEL_ANONIMO:
+            elif not acesso.identificado:
                 answer = "Identifique-se para consultar o acervo interno."
             else:
                 answer = f"**Não consta nas fontes.** {_GENERICA}"
@@ -221,7 +220,7 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
 
     # Montagem: citações e sigilo saem só das fontes que o sujeito pode ver.
     fontes = list(dict.fromkeys(fontes))
-    citacoes = acervo.citacoes(fontes, nivel)
+    citacoes = acervo.citacoes(fontes, acesso)
     sigilo = acervo.nivel_das_fontes([c["codigo"] for c in citacoes]) if citacoes else nivel
     latencia = max(1, int((time.perf_counter() - inicio) * 1000))
     if deterministico:
@@ -229,7 +228,7 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
     else:
         custo = tokens / 1000 * cfg.llm_cost_per_1k_brl
         rotulo = f"🧠 Custo: ~R$ {custo:.4f} (RAG + LLM local, {tokens} tokens)".replace(".", ",")
-    visiveis = {d.tema for d in acervo.visiveis(nivel)}
+    visiveis = {d.tema for d in acervo.visiveis(acesso)}
     sugestoes = [s for t in [tema, *SUGESTOES] if t in visiveis for s in SUGESTOES[t]]
 
     audit_log.registrar(sujeito.id, "chat", resultado, intent,

@@ -8,17 +8,15 @@ import json
 from dataclasses import dataclass
 from functools import lru_cache
 
-from app.core.acl import maior_nivel, pode_ver
+from app.core.acl import Acesso, maior_nivel, pode_ver
 from app.core.config import RAIZ
+from app.core.setores import rotulo, setores
 from app.services.ingest.pipeline import MANIFESTO, Chunk, carregar_silver
 
 SEED = RAIZ / "app" / "seed" / "acervo_estruturado.json"
 
-NOMES_DOMINIO = {
-    "GGC": "GGC (Gerência de Gente e Cultura)",
-    "NIN": "NIN (Núcleo de Inovação)",
-    "GCO": "GCO (Gerência de Compras e Contratos)",
-}
+# Setor dono -> rótulo. Vem de app/seed/setores.json (classificação BBTS).
+NOMES_DOMINIO = {sigla: rotulo(sigla) for sigla in setores()}
 # Hierarquia documental: a norma geral prevalece sobre procedimento, que prevalece sobre apoio.
 PESO_TIPO = {"NG": 1.15, "RG": 1.1, "CTR": 1.1, "PX": 1.05}
 
@@ -36,6 +34,10 @@ class Documento:
     arquivo: str | None
     data_referencia: str | None
     vinculado_a: str | None
+    # Setores com necessidade de conhecer (docs/CLASSIFICACAO_BBTS.md). Em documento Interno,
+    # só informa o dono: a empresa toda vê.
+    setores: tuple[str, ...] = ()
+    motivo: str = ""
 
     @property
     def tipo(self) -> str:
@@ -73,26 +75,36 @@ class Acervo:
                 arquivo=m["arquivo"],
                 data_referencia=cab.get("data_referencia"),
                 vinculado_a=cab.get("vinculado_a"),
+                setores=tuple(m.get("setores") or [m["dominio"]]),
+                motivo=m.get("motivo", ""),
             ))
+        self._por_versao = {(d.codigo, d.versao): d for d in self.documentos}
 
     # ---------- consultas ----------
+    @staticmethod
+    def pode(acesso: Acesso, doc: Documento) -> bool:
+        return pode_ver(acesso, doc.nivel, doc.setores)
+
+    def documento(self, codigo: str, versao: str) -> Documento | None:
+        return self._por_versao.get((codigo, versao))
+
     def vigente(self, codigo: str) -> Documento | None:
         return next((d for d in self.documentos if d.codigo == codigo and d.vigente), None)
 
-    def visiveis(self, nivel: str, tema: str | None = None,
+    def visiveis(self, acesso: Acesso, tema: str | None = None,
                  vigentes: bool | None = True) -> list[Documento]:
         return [
             d for d in self.documentos
-            if pode_ver(nivel, d.nivel)
+            if self.pode(acesso, d)
             and (tema in (None, "todos") or d.tema == tema)
             and (vigentes is None or d.vigente == vigentes)
         ]
 
-    def autorizado(self, codigos: list[str], nivel: str) -> bool:
+    def autorizado(self, codigos: list[str], acesso: Acesso) -> bool:
         """Verdadeiro só se o sujeito pode ver TODAS as fontes (vigentes) informadas."""
         for codigo in codigos:
             doc = self.vigente(codigo)
-            if doc is None or not pode_ver(nivel, doc.nivel):
+            if doc is None or not self.pode(acesso, doc):
                 return False
         return True
 
@@ -100,19 +112,27 @@ class Acervo:
         docs = [self.vigente(c) for c in codigos]
         return maior_nivel([d.nivel for d in docs if d])
 
-    def citacoes(self, codigos: list[str], nivel: str) -> list[dict]:
+    def citacoes(self, codigos: list[str], acesso: Acesso) -> list[dict]:
         """Citações só de documentos vigentes que o sujeito pode ver, sem repetição."""
         vistas, saida = set(), []
         for codigo in codigos:
             doc = self.vigente(codigo)
-            if doc and pode_ver(nivel, doc.nivel) and codigo not in vistas:
+            if doc and self.pode(acesso, doc) and codigo not in vistas:
                 vistas.add(codigo)
                 saida.append(doc.citacao())
         return saida
 
-    def chunks_visiveis(self, nivel: str, incluir_substituidos: bool = False) -> list[Chunk]:
+    def _chunk_visivel(self, acesso: Acesso, chunk: Chunk) -> bool:
+        doc = self._por_versao.get((chunk.codigo, chunk.versao))
+        return doc is not None and self.pode(acesso, doc)
+
+    def chunks_visiveis(self, acesso: Acesso, incluir_substituidos: bool = False) -> list[Chunk]:
         return [c for c in self.chunks
-                if pode_ver(nivel, c.nivel) and (c.vigente or incluir_substituidos)]
+                if self._chunk_visivel(acesso, c) and (c.vigente or incluir_substituidos)]
+
+    def chunks_ocultos(self, acesso: Acesso) -> list[Chunk]:
+        """Trechos vigentes que o sujeito NÃO pode ver. Servem só para apontar o setor dono."""
+        return [c for c in self.chunks if c.vigente and not self._chunk_visivel(acesso, c)]
 
 
 @lru_cache

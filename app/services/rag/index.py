@@ -1,7 +1,8 @@
 """Busca lexical (BM25) com filtro de permissão ANTES do ranking.
 
-Cada partição (nível do sujeito, com ou sem versões substituídas) tem o próprio índice, montado
-só com os trechos que aquele nível pode ver. Um trecho proibido nunca é pontuado nem devolvido.
+Cada partição (perfil de acesso do sujeito: setor e credenciamento, com ou sem versões
+substituídas) tem o próprio índice, montado só com os trechos que aquele perfil pode ver. Um trecho
+proibido nunca é pontuado nem devolvido.
 """
 
 import re
@@ -10,7 +11,7 @@ from dataclasses import dataclass
 
 from rank_bm25 import BM25Okapi
 
-from app.core.acl import NIVEIS, ordem
+from app.core.acl import Acesso
 from app.services.acervo import PESO_TIPO, Acervo
 from app.services.ingest.pipeline import Chunk
 
@@ -80,34 +81,30 @@ class _Particao:
 class Indice:
     def __init__(self, acervo: Acervo) -> None:
         self._acervo = acervo
-        self._particoes: dict[tuple[str, bool], _Particao] = {}
-        self._restritas: dict[str, _Particao] = {}
+        self._particoes: dict[tuple[Acesso, bool], _Particao] = {}
+        self._ocultas: dict[Acesso, _Particao] = {}
 
-    def _particao(self, nivel: str, substituidos: bool) -> _Particao:
-        chave = (nivel, substituidos)
+    def _particao(self, acesso: Acesso, substituidos: bool) -> _Particao:
+        chave = (acesso, substituidos)
         if chave not in self._particoes:
-            self._particoes[chave] = _Particao(self._acervo.chunks_visiveis(nivel, substituidos))
+            self._particoes[chave] = _Particao(self._acervo.chunks_visiveis(acesso, substituidos))
         return self._particoes[chave]
 
-    def buscar(self, consulta: str, nivel: str, k: int = 4, tema: str | None = None,
+    def buscar(self, consulta: str, acesso: Acesso, k: int = 4, tema: str | None = None,
                incluir_substituidos: bool = False) -> list[Trecho]:
-        return self._particao(nivel, incluir_substituidos).buscar(consulta, k, tema)
+        return self._particao(acesso, incluir_substituidos).buscar(consulta, k, tema)
 
-    def dominio_bloqueado(self, consulta: str, nivel: str, melhor_score: float) -> str | None:
-        """Diz qual área dona tem conteúdo RESTRITO que responderia melhor à pergunta.
+    def dominio_bloqueado(self, consulta: str, acesso: Acesso, melhor_score: float) -> str | None:
+        """Diz qual setor dono tem conteúdo FORA do alcance do sujeito que responderia melhor.
 
-        Só olha o degrau imediatamente acima do sujeito e nunca passa de Restrita: documento
-        Sigiloso não tem a existência revelada. Devolve só a sigla da área, nunca o conteúdo.
+        Devolve só a sigla do setor, nunca o código, o título ou o conteúdo do documento. Quem não
+        se identificou não recebe nem isso.
         """
-        degrau = ordem(nivel) + 1
-        if degrau > ordem("Restrita"):
+        if not acesso.identificado:
             return None
-        alvo = NIVEIS[degrau]
-        if alvo not in self._restritas:
-            self._restritas[alvo] = _Particao(
-                [c for c in self._acervo.chunks if c.nivel == alvo and c.vigente]
-            )
-        achados = self._restritas[alvo].buscar(consulta, 1, None)
+        if acesso not in self._ocultas:
+            self._ocultas[acesso] = _Particao(self._acervo.chunks_ocultos(acesso))
+        achados = self._ocultas[acesso].buscar(consulta, 1, None)
         if achados and achados[0].score > max(melhor_score * 1.15, SCORE_BLOQUEIO):
             return achados[0].chunk.dominio
         return None

@@ -7,6 +7,7 @@ import pytest
 from pptx import Presentation
 
 from app.core import auth
+from app.core.acl import ACESSO_ANONIMO, Acesso
 from app.core.config import get_settings
 from app.services.acervo import get_acervo
 from app.services.agent.router import get_indice
@@ -112,7 +113,7 @@ def test_pptx_valido_com_classificacao_e_citacao_nas_notas(client):
     prs = Presentation(BytesIO(r.content))
     assert len(prs.slides) == 4
     assert "CTR_2026-012" in prs.slides[1].notes_slide.notes_text_frame.text
-    assert prs.core_properties.keywords == "classificacao:Restrita"
+    assert prs.core_properties.keywords == "classificacao:Sigilosa"
 
 
 def test_limite_de_relatorios(client):
@@ -132,38 +133,47 @@ def test_cors_so_origem_permitida(client):
 
 
 # ---------- busca: filtro antes do ranking ----------
-def test_indice_nao_devolve_trecho_acima_do_nivel():
+def test_indice_nao_devolve_trecho_sigiloso_fora_do_setor():
     indice = get_indice()
-    for nivel in ("Pública", "Interna"):
-        achados = indice.buscar("aluguel mensal coworking contrato locação", nivel, k=20)
-        assert all(t.chunk.nivel != "Restrita" for t in achados)
-    assert indice.buscar("aluguel mensal coworking", "Restrita", k=5)
-    assert indice.buscar("férias antecedência solicitação", "Pública", k=5) == []
+    for perfil in (ACESSO_ANONIMO, Acesso("GOP"), Acesso("GOC"), Acesso("GEPEC", True)):
+        achados = indice.buscar("aluguel mensal coworking contrato locação", perfil, k=20)
+        assert all(t.chunk.nivel != "Sigilosa" for t in achados)
+    assert indice.buscar("aluguel mensal coworking", Acesso("GOC", True), k=5)
+    assert indice.buscar("férias antecedência solicitação", ACESSO_ANONIMO, k=5) == []
 
 
 def test_versao_substituida_fora_da_busca_comum():
     indice = get_indice()
-    comum = indice.buscar("solicitação antecedência mínima dias férias", "Interna", k=30)
+    gepec = Acesso("GEPEC", True)
+    comum = indice.buscar("solicitação antecedência mínima dias férias", gepec, k=30)
     assert all(t.chunk.vigente for t in comum)
-    historico = indice.buscar("solicitação antecedência mínima 30 dias", "Interna", k=30,
+    historico = indice.buscar("solicitação antecedência mínima 30 dias", gepec, k=30,
                               incluir_substituidos=True)
     assert any(t.chunk.versao == "2.0.0" and t.chunk.codigo == "NG_111" for t in historico)
+    # Fora da GEPEC, a versão substituída não aparece nem pedindo o histórico.
+    ana = indice.buscar("solicitação antecedência mínima 30 dias", Acesso("GOP"), k=30,
+                        incluir_substituidos=True)
+    assert all(t.chunk.vigente for t in ana)
 
 
-def test_sigiloso_nunca_e_revelado_pelo_bloqueio():
+def test_bloqueio_revela_so_o_setor_e_nunca_para_anonimo():
     indice = get_indice()
-    # Restrita não sonda o degrau Sigilosa; Interna só sonda Restrita.
-    assert indice.dominio_bloqueado("qualquer coisa sigilosa", "Restrita", 0.0) is None
-    assert indice.dominio_bloqueado("qualquer coisa sigilosa", "Sigilosa", 0.0) is None
+    pergunta = "aluguel mensal coworking multa rescisão"
+    assert indice.dominio_bloqueado(pergunta, ACESSO_ANONIMO, 0.0) is None
+    assert indice.dominio_bloqueado(pergunta, Acesso("GOP"), 0.0) == "GESUC"
+    assert indice.dominio_bloqueado(pergunta, Acesso("GOC", True), 0.0) is None
 
 
 def test_acervo_integro():
     acervo = get_acervo()
     assert acervo.quarentena == []
     assert acervo.vigente("NG_111").versao == "3.0.0"
-    assert acervo.vigente("CTR_2026-012").nivel == "Restrita"  # piso do manifesto > "#interna"
-    assert not acervo.autorizado(["NG_111", "CTR_2026-012"], "Interna")
-    assert not acervo.autorizado(["NAO_EXISTE"], "Sigilosa")
+    contrato = acervo.vigente("CTR_2026-012")
+    assert contrato.nivel == "Sigilosa"  # classificação BBTS > "#interna" impresso no PDF
+    assert contrato.setores == ("GESUC", "GOC", "GFI")
+    assert not acervo.autorizado(["NG_111", "CTR_2026-012"], Acesso("GOP"))
+    assert acervo.autorizado(["NG_111", "CTR_2026-012"], Acesso("GFI", True))
+    assert not acervo.autorizado(["NAO_EXISTE"], Acesso("GESUC", True))
 
 
 # ---------- modo token ----------

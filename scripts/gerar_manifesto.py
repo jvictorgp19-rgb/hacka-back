@@ -1,7 +1,8 @@
 """Gera app/seed/manifesto.json: a lista CURADA de documentos que podem ser ingeridos.
 
-O manifesto fixa hash, domínio (área dona), tema e o PISO de classificação de cada PDF.
-O cabeçalho do PDF nunca reduz esse piso. Rode de novo só quando o acervo mudar:
+O manifesto fixa hash, domínio (setor dono), tema, classificação e setores de cada PDF.
+A classificação e os setores seguem docs/CLASSIFICACAO_BBTS.md. O cabeçalho do PDF ("#interna")
+nunca reduz a classificação. Rode de novo só quando o acervo ou a classificação mudar:
     python scripts/gerar_manifesto.py
 """
 
@@ -15,17 +16,42 @@ BRONZE = RAIZ / "acervo" / "bronze"
 
 TEMA = {"ferias": "ferias", "inovacao": "inovacao", "locacao": "locacao"}
 DOMINIO = {
-    "NG_111": "GGC", "PX_1111-001": "GGC", "FM_1111-001": "GGC", "TB_1111-001": "GGC",
-    "FL_1111-001": "GGC", "NG_1130": "NIN", "PX_1130-001": "NIN", "RG_1100": "NIN",
-    "NT_2026-021": "NIN", "CTR_2026-012": "GCO", "NT_2026-018": "GCO",
+    "NG_111": "GEPEC", "PX_1111-001": "GEPEC", "FM_1111-001": "GEPEC", "TB_1111-001": "GEPEC",
+    "FL_1111-001": "GEPEC", "NG_1130": "GEINOV", "PX_1130-001": "GEINOV", "RG_1100": "GEINOV",
+    "NT_2026-021": "GEINOV", "CTR_2026-012": "GESUC", "NT_2026-018": "GESUC",
 }
-# Piso de classificação acima do "#interna" impresso no PDF (decisão de curadoria da demo).
-PISO = {"CTR_2026-012": "Restrita", "NT_2026-018": "Restrita"}
+# docs/CLASSIFICACAO_BBTS.md, seção 3 e 5: (setores com acesso, motivo). Vale por código e versão;
+# versão substituída é sigilosa da GEPEC (arquivo histórico), qualquer que seja o código.
+SIGILOSOS = {
+    "NT_2026-021": (["GEINOV", "DIRTEC", "DIRAF"],
+                    "Orçamento de R$ 96 mil, alçadas de gasto e indicadores da edição anterior: "
+                    "documento de decisão gerencial."),
+    "NT_2026-018": (["GESUC", "GOC", "DIRAF"],
+                    "Cotações de 3 fornecedores, preço de referência e alçada da contratação."),
+    "CTR_2026-012": (["GESUC", "GOC", "GFI"],
+                     "Valores, multas, rescisão e dados pessoais dos usuários do coworking. "
+                     "GOC fiscaliza e GFI paga."),
+}
+SUBSTITUIDO = (["GEPEC"], "Versão substituída: a regra antiga pode levar a erro. Fica só no "
+                          "arquivo histórico da GEPEC, para auditoria.")
+INTERNO = ("Orienta qualquer empregado: regra, passo a passo, formulário em branco ou programa "
+           "aberto.")
+
+
+def classificar(codigo: str, vigente: bool) -> tuple[str, list[str], str]:
+    if not vigente:
+        return "Sigilosa", *SUBSTITUIDO
+    if codigo in SIGILOSOS:
+        return "Sigilosa", *SIGILOSOS[codigo]
+    return "Interna", [DOMINIO[codigo]], INTERNO
+
 
 docs = []
 for pdf in sorted(BRONZE.rglob("*.pdf")):
     m = re.match(r"(?P<codigo>[A-Z]+_[\d-]+)__.*__v(?P<versao>[\d.]+)\.pdf$", pdf.name)
     codigo = m["codigo"]
+    vigente = "substituidos" not in pdf.parts
+    classe, setores, motivo = classificar(codigo, vigente)
     docs.append({
         "codigo": codigo,
         "versao": m["versao"],
@@ -33,8 +59,10 @@ for pdf in sorted(BRONZE.rglob("*.pdf")):
         "sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
         "tema": TEMA[pdf.relative_to(BRONZE).parts[0]],
         "dominio": DOMINIO[codigo],
-        "classificacao": PISO.get(codigo, "Interna"),
-        "vigente": "substituidos" not in pdf.parts,
+        "classificacao": classe,
+        "setores": setores,
+        "motivo": motivo,
+        "vigente": vigente,
     })
 
 # Documento virtual (sem PDF) para demonstrar bloqueio RBAC e resposta curada. 100% sintético.
@@ -44,8 +72,10 @@ docs.append({
     "arquivo": None,
     "sha256": None,
     "tema": "ferias",
-    "dominio": "GGC",
-    "classificacao": "Restrita",
+    "dominio": "GEPEC",
+    "classificacao": "Sigilosa",
+    "setores": ["GEPEC"],
+    "motivo": "Dados de folha de pagamento e exceções da unidade: sigiloso da GEPEC.",
     "vigente": True,
     "titulo": "Dossiê de exceções de ressarcimento e auditoria da folha (sintético)",
     "texto": (

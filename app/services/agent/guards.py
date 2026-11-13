@@ -87,7 +87,7 @@ def lacuna_conhecida(p: Parametros) -> Lacuna | None:
     if premio and p.tem("divid", "divis", "rate", "equipe", "cada integrante", "quem recebe"):
         return Lacuna(
             fontes=["RG_1100"],
-            dominio="NIN",
+            dominio="GEINOV",
             lacuna="Divisão do prêmio em dinheiro entre os integrantes de uma ideia de equipe.",
             detalhes=[
                 "O RG_1100 v2.0.0 fixa os valores dos prêmios e o pagamento em folha em até 30 "
@@ -100,7 +100,7 @@ def lacuna_conhecida(p: Parametros) -> Lacuna | None:
                                                          "inovacao"):
         return Lacuna(
             fontes=["NT_2026-021"],
-            dominio="NIN",
+            dominio="GEINOV",
             lacuna="Participação de empregado afastado na data da inscrição do Ideias em Campo.",
             detalhes=["A NT_2026-021 (item 5.4) diz que não trata desse caso e manda consultar "
                       "o NIN."],
@@ -110,7 +110,7 @@ def lacuna_conhecida(p: Parametros) -> Lacuna | None:
     if p.tem("ng_012", "ng_010", "ng 012", "ng 010"):
         return Lacuna(
             fontes=["NT_2026-021"],
-            dominio="NIN",
+            dominio="GEINOV",
             lacuna="Texto integral da NG_010 e da NG_012.",
             detalhes=[
                 "A NG_010 (gestão de documentos) e a NG_012 (alçadas) são citadas por vários "

@@ -39,6 +39,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     delete,
+    inspect,
     select,
     text,
 )
@@ -57,7 +58,7 @@ from app.services.ingest import pipeline
 
 log = logging.getLogger("raiz.persistencia")
 
-VERSAO_ESPELHO = "1"
+VERSAO_ESPELHO = "2"  # 2: setores e motivo da classificação BBTS
 _ID = BigInteger().with_variant(Integer, "sqlite")
 _JSON = JSON().with_variant(JSONB(), "postgresql")
 _NIVEL = String(20)
@@ -85,6 +86,10 @@ documento = Table(
     Column("dominio", String(10), nullable=False),
     Column("dominio_nome", Text, nullable=False),
     Column("nivel", _NIVEL, nullable=False),
+    # Setores com necessidade de conhecer (docs/CLASSIFICACAO_BBTS.md). Quem ler esta tabela para
+    # servir alguém filtra por nivel E por setores, como app/core/acl.py.
+    Column("setores", _JSON),
+    Column("motivo_classificacao", Text),
     Column("classificacao_pdf", _NIVEL),
     Column("vigente", Boolean, nullable=False),
     Column("fase", Text),
@@ -158,6 +163,8 @@ persona = Table(
     Column("unidade", Text, nullable=False),
     Column("nivel", _NIVEL, nullable=False),
     Column("cura_dominios", _JSON, nullable=False),
+    Column("setor", String(10)),
+    Column("senioridade", String(10)),
 )
 pedido_acesso = Table(
     "sistema_pedido_acesso", _meta,
@@ -305,6 +312,7 @@ def montar(acervo: Acervo, grafo: Grafo) -> dict[str, list[dict]]:
             "codigo": d.codigo, "versao": d.versao, "titulo": d.titulo, "tipo": d.tipo,
             "categoria": cab.get("tipo"), "tema": d.tema, "dominio": d.dominio,
             "dominio_nome": NOMES_DOMINIO.get(d.dominio, d.dominio), "nivel": d.nivel,
+            "setores": list(d.setores), "motivo_classificacao": d.motivo,
             "classificacao_pdf": cab.get("classificacao"), "vigente": d.vigente,
             "fase": d.fase, "arquivo": d.arquivo, "link_repositorio": _link(d.arquivo),
             "sha256": m.get("sha256"), "elaborado_por": cab.get("elaborado_por"),
@@ -327,7 +335,8 @@ def montar(acervo: Acervo, grafo: Grafo) -> dict[str, list[dict]]:
                for s, v in secoes.items()]
 
     personas = [{"id": p.id, "nome": p.nome, "papel": p.papel, "unidade": p.unidade,
-                 "nivel": p.nivel, "cura_dominios": list(p.cura_dominios)}
+                 "nivel": p.nivel, "cura_dominios": list(p.cura_dominios),
+                 "setor": p.setor, "senioridade": p.senioridade}
                 for p in PERSONAS.values()]
     pedidos = [{"id": p.item.id, "solicitante_id": p.solicitante_id, "dominio": p.dominio,
                 "nivel_exigido": p.item.nivelExigido, "status": p.item.status,
@@ -354,6 +363,24 @@ def _engine() -> Engine:
 
 
 _trava = threading.Lock()
+
+
+def migrar_colunas(engine: Engine) -> list[str]:
+    """Cria as colunas novas em tabelas que já existiam. Só o papel DONO consegue."""
+    existentes = inspect(engine)
+    criadas = []
+    with engine.begin() as c:
+        for tabela in _meta.sorted_tables:
+            if not existentes.has_table(tabela.name):
+                continue
+            atuais = {col["name"] for col in existentes.get_columns(tabela.name)}
+            for coluna in tabela.columns:
+                if coluna.name in atuais:
+                    continue
+                tipo = coluna.type.compile(dialect=engine.dialect)
+                c.execute(text(f'ALTER TABLE {tabela.name} ADD COLUMN "{coluna.name}" {tipo}'))
+                criadas.append(f"{tabela.name}.{coluna.name}")
+    return criadas
 
 
 def sincronizar(acervo: Acervo, grafo: Grafo) -> str:
@@ -415,7 +442,10 @@ if __name__ == "__main__":
     except ValueError as erro:
         raise SystemExit(f"Configuração recusada: {erro}") from None
     try:
-        _meta.create_all(criar_engine(url))
+        engine_dono = criar_engine(url)
+        _meta.create_all(engine_dono)
+        for coluna in migrar_colunas(engine_dono):
+            print(f"coluna criada: {coluna}")
         print(sincronizar(get_acervo(), get_grafo()))
     except Exception as erro:  # noqa: BLE001
         raise SystemExit(f"Falha: {type(erro).__name__}.") from None

@@ -84,7 +84,7 @@ def _eventos(acervo: Acervo, hoje: date) -> list[_Evento]:
 def montar_radar(acervo: Acervo, sujeito: Sujeito, hoje: date) -> list[RadarEvent]:
     saida = []
     visiveis = [e for e in _eventos(acervo, hoje)
-                if e.data >= hoje and acervo.autorizado(e.fontes, sujeito.nivel)]
+                if e.data >= hoje and acervo.autorizado(e.fontes, sujeito.acesso)]
     for i, e in enumerate(sorted(visiveis, key=lambda e: e.data), 1):
         dias = (e.data - hoje).days
         criticidade = "Crítica" if dias <= 30 else "Alta" if dias <= 90 else "Normal"

@@ -27,7 +27,7 @@ import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-from app.core.acl import pode_ver
+from app.core.acl import Acesso
 from app.schemas.api import GrafoAresta, GrafoNo, GrafoResponse
 from app.services.acervo import NOMES_DOMINIO, Acervo, Documento, get_acervo
 
@@ -104,13 +104,13 @@ class Grafo:
         if len(self._arestas) > MAX_ARESTAS:
             raise RuntimeError("Grafo acima do limite de arestas.")
 
-    # ---------- projeção (o que cada nível enxerga) ----------
-    def projetar(self, nivel: str, tema: str | None = None) -> GrafoResponse:
+    # ---------- projeção (o que cada perfil de acesso enxerga) ----------
+    def projetar(self, acesso: Acesso, tema: str | None = None) -> GrafoResponse:
         visiveis = {i: d for i, d in self._docs.items()
-                    if pode_ver(nivel, d.nivel) and (tema is None or d.tema == tema)}
+                    if Acervo.pode(acesso, d) and (tema is None or d.tema == tema)}
         # Para resolver um código citado, vale a versão vigente visível (em qualquer tema).
         vigente_visivel = {d.codigo: i for i, d in self._docs.items()
-                           if d.vigente and pode_ver(nivel, d.nivel)}
+                           if d.vigente and Acervo.pode(acesso, d)}
 
         nos: dict[str, GrafoNo] = {}
         arestas: list[GrafoAresta] = []
@@ -156,14 +156,14 @@ class Grafo:
         return [{"origem": a.origem, "alvo": a.alvo, "tipo": a.tipo, "itens": list(a.itens),
                  "nivel": self._docs[a.origem].nivel} for a in self._arestas]
 
-    def versao_anterior(self, codigo: str, nivel: str) -> tuple[Documento, Documento] | None:
-        """(vigente, anterior) quando as DUAS versões são visíveis para o nível."""
+    def versao_anterior(self, codigo: str, acesso: Acesso) -> tuple[Documento, Documento] | None:
+        """(vigente, anterior) quando as DUAS versões são visíveis para o perfil de acesso."""
         for a in self._arestas:
             if a.tipo != "substitui":
                 continue
             atual, antiga = self._docs[a.origem], self._docs[a.alvo]
-            if atual.codigo == codigo and pode_ver(nivel, atual.nivel) \
-                    and pode_ver(nivel, antiga.nivel):
+            if atual.codigo == codigo and Acervo.pode(acesso, atual) \
+                    and Acervo.pode(acesso, antiga):
                 return atual, antiga
         return None
 

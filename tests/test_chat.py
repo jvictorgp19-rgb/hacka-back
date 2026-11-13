@@ -48,13 +48,13 @@ def test_demo_5_rescisao_em_marco_sem_multa(perguntar):
     d = perguntar("Se rescindirmos o contrato CTR_2026-012 em março de 2027, pagamos multa?",
                   "rafael", "locacao")
     assert "Não há multa" in d["answer"]
-    assert d["costBadge"]["sigiloNivel"] == "Restrita"
+    assert d["costBadge"]["sigiloNivel"] == "Sigilosa"
 
 
 def test_demo_6_abstencao_honesta(perguntar):
     d = perguntar("Como o prêmio de equipe é dividido?", "marina", "inovacao")
     assert "Não consta" in d["answer"]
-    assert "NIN" in d["honestAbstention"]["donoDominio"]
+    assert "GEINOV" in d["honestAbstention"]["donoDominio"]
 
 
 def test_regra_revogada_de_inovacao(perguntar):
@@ -82,13 +82,13 @@ def test_demo_7_interna_nao_recebe_conteudo_restrito(perguntar):
 
 def test_bloqueio_revela_so_a_area_dona(perguntar):
     d = perguntar("Qual o valor do aluguel do coworking?", "ana", "locacao")
-    assert d["rbacBlock"]["dominioResponsavel"].startswith("GCO")
+    assert d["rbacBlock"]["dominioResponsavel"].startswith("GESUC")
     assert "CTR_2026" not in json.dumps(d["rbacBlock"])
 
 
 def test_dossie_restrito_bloqueado_para_ana(perguntar):
     d = perguntar("Qual o dossiê restrito de auditoria da folha para ressarcimento?")
-    assert d["rbacBlock"]["dominioResponsavel"].startswith("GGC")
+    assert d["rbacBlock"]["dominioResponsavel"].startswith("GEPEC")
     assert "Parâmetros internos" not in json.dumps(d, ensure_ascii=False)
 
 

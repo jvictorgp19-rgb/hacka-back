@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request
 
-from app.core.acl import NIVEL_ANONIMO
+from app.core.acl import ACESSO_ANONIMO, NIVEL_ANONIMO, Acesso
 from app.core.config import get_settings
 from app.core.personas import PERSONAS, Persona
 
@@ -30,6 +30,13 @@ class Sujeito:
     @property
     def id(self) -> str:
         return self.persona.id if self.persona else "anonimo"
+
+    @property
+    def acesso(self) -> Acesso:
+        """Setor (necessidade de conhecer) e credenciamento. Anônimo não tem setor."""
+        if self.persona is None:
+            return ACESSO_ANONIMO
+        return Acesso(setor=self.persona.setor, credenciado=self.persona.nivel == "Sigilosa")
 
 
 ANONIMO = Sujeito(None, NIVEL_ANONIMO)
