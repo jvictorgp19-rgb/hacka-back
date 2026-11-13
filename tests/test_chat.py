@@ -57,6 +57,15 @@ def test_demo_6_abstencao_honesta(perguntar):
     assert "GEINOV" in d["honestAbstention"]["donoDominio"]
 
 
+def test_regra_revogada_nao_mostra_o_texto_antigo_fora_da_gepec(perguntar):
+    ana = perguntar("Mas não eram 30 dias de antecedência?", "ana")
+    corpo = json.dumps(ana, ensure_ascii=False)
+    assert ana["revokedAlert"] and "45 dias" in ana["answer"]
+    assert "30 dias" not in corpo and "item 2.3" not in corpo  # conteúdo da v2.0.0 (Sigilosa)
+    curadora = perguntar("Mas não eram 30 dias de antecedência?", "curadora_ggc")
+    assert "30 dias" in curadora["revokedAlert"]["pegadinha"]
+
+
 def test_regra_revogada_de_inovacao(perguntar):
     d = perguntar("Posso inscrever 3 ideias como em 2026?", "marina", "inovacao")
     assert d["revokedAlert"]["codigo"] == "RG_1100 v1.0.0"

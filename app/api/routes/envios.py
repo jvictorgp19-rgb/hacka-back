@@ -7,11 +7,12 @@ Regras de quem vê e de quem aprova: app/services/envios.py.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from app.core.auth import Sujeito, resolver_sujeito, sujeito_da_requisicao
+from app.api.deps import SujeitoDep, sem_cache
+from app.core.auth import Sujeito, resolver_sujeito
 from app.core.config import get_settings
 from app.core.limites import checar_taxa
 from app.core.setores import rotulo
@@ -21,12 +22,7 @@ from app.services.calculators.ferias import dias_por_faltas
 from app.services.triagem.extracao import ArquivoRecusado, detectar_formato
 
 router = APIRouter()
-SujeitoDep = Annotated[Sujeito, Depends(sujeito_da_requisicao)]
 NAO_ENCONTRADO = "Envio não encontrado."
-
-
-def _sem_cache(response: Response) -> None:
-    response.headers["Cache-Control"] = "private, no-store"
 
 
 def _iso(momento) -> str | None:
@@ -35,7 +31,7 @@ def _iso(momento) -> str | None:
 
 def _ferias(envio: envios.Envio, sujeito: Sujeito) -> dict | None:
     f = envio.fatos_ferias
-    if not f or not envios.ve_dados_pessoais(sujeito.persona, envio):
+    if not f or not envios.ve_dados_pessoais(sujeito.persona, sujeito.acesso, envio):
         return None
     faltas = f.get("faltas_injustificadas")
     return {"faltasInjustificadas": faltas, "origemFaltas": f.get("origem_faltas"),
@@ -87,7 +83,7 @@ def _receber(arquivo: UploadFile, sujeito: Sujeito) -> envios.Envio:
 @router.post("/document-jobs", response_model=list[UploadItem])
 async def enviar(request: Request, response: Response, sujeito: SujeitoDep) -> list[UploadItem]:
     cfg = get_settings()
-    _sem_cache(response)
+    sem_cache(response)
     if sujeito.persona is None:
         raise HTTPException(401, "Identifique-se para enviar arquivos.")
     checar_taxa(request, sujeito.id, "upload", cfg.rate_upload_per_min)
@@ -112,7 +108,7 @@ def listar(sujeito: SujeitoDep, response: Response,
                                                           "dispensado)$")] = None,
            ) -> list[UploadItem]:
     """Envios que o sujeito vê: os dele, os que ele aprova e os já liberados para o setor."""
-    _sem_cache(response)
+    sem_cache(response)
     if sujeito.persona is None:
         raise HTTPException(401, "Identifique-se para ver os envios.")
     vistos = [e for e in envios.listar()
@@ -123,7 +119,7 @@ def listar(sujeito: SujeitoDep, response: Response,
 
 @router.get("/document-jobs/{envio_id}", response_model=UploadItem)
 def status(envio_id: str, sujeito: SujeitoDep, response: Response) -> UploadItem:
-    _sem_cache(response)
+    sem_cache(response)
     envio = envios.obter(envio_id)
     # Sem permissão é 404, não 403: não confirma que o envio existe.
     if envio is None or not envios.pode_ver(sujeito.persona, sujeito.acesso, envio):
@@ -135,7 +131,7 @@ def status(envio_id: str, sujeito: SujeitoDep, response: Response) -> UploadItem
 def decidir(envio_id: str, body: UploadDecision, request: Request,
             response: Response) -> UploadItem:
     """Aprovador confirma (ou corrige) o nível e os setores, ou recusa o envio."""
-    _sem_cache(response)
+    sem_cache(response)
     sujeito = resolver_sujeito(request, body.persona)
     envio = envios.obter(envio_id)
     if envio is None or not envios.pode_ver(sujeito.persona, sujeito.acesso, envio):
@@ -151,3 +147,17 @@ def decidir(envio_id: str, body: UploadDecision, request: Request,
     except envios.DecisaoInvalida as erro:
         raise HTTPException(422, str(erro)) from None
     return _item(decidido, sujeito)
+
+
+@router.post("/document-jobs/{envio_id}/forget", response_model=UploadItem)
+def esquecer(envio_id: str, sujeito: SujeitoDep, response: Response) -> UploadItem:
+    """Quem enviou pede a eliminação dos dados pessoais do envio (LGPD art. 18, VI): nome do
+    arquivo, resposta do aprovador e fatos de férias. Fica a classificação, sem dado pessoal."""
+    sem_cache(response)
+    envio = envios.obter(envio_id)
+    if envio is None or sujeito.persona is None or envio.enviado_por != sujeito.id:
+        raise HTTPException(404, NAO_ENCONTRADO)
+    try:
+        return _item(envios.esquecer(envio_id, sujeito.persona), sujeito)
+    except envios.DecisaoInvalida as erro:
+        raise HTTPException(409, str(erro)) from None

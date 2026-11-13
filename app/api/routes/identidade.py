@@ -7,16 +7,15 @@ com um SSO. Sem tela de login, quem apresenta grava a identidade com POST /ident
 - AUTH_MODE=token: o token assinado (cookie raiz_sessao), conferido a cada requisição.
 """
 
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 
+from app.api.deps import SujeitoDep, sem_cache
 from app.core.auth import (
     ANONIMO,
     COOKIE_DEMO,
     COOKIE_SESSAO,
     Sujeito,
-    sujeito_da_requisicao,
     validar_token,
 )
 from app.core.config import get_settings
@@ -27,12 +26,7 @@ from app.schemas.api import Identity, IdentityLogin
 from app.services import audit_log
 
 router = APIRouter()
-SujeitoDep = Annotated[Sujeito, Depends(sujeito_da_requisicao)]
 TENTATIVAS_POR_MINUTO = 10
-
-
-def _sem_cache(response: Response) -> None:
-    response.headers["Cache-Control"] = "private, no-store"
 
 
 def capacidades(sujeito: Sujeito) -> list[str]:
@@ -69,14 +63,14 @@ def _gravar_cookie(response: Response, nome: str, valor: str, minutos: int) -> N
 
 @router.get("/identity", response_model=Identity)
 def identidade(sujeito: SujeitoDep, response: Response) -> Identity:
-    _sem_cache(response)
+    sem_cache(response)
     return _identidade(sujeito)
 
 
 @router.post("/identity", response_model=Identity)
 def entrar(body: IdentityLogin, request: Request, response: Response) -> Identity:
     cfg = get_settings()
-    _sem_cache(response)
+    sem_cache(response)
     checar_taxa(request, "identidade", "identidade", TENTATIVAS_POR_MINUTO)
     if cfg.auth_mode == "token":
         if not body.token:
@@ -96,7 +90,10 @@ def entrar(body: IdentityLogin, request: Request, response: Response) -> Identit
 
 @router.post("/identity/sair", response_model=Identity)
 def sair(response: Response) -> Identity:
-    _sem_cache(response)
-    for nome in (COOKIE_DEMO, COOKIE_SESSAO):
-        response.delete_cookie(nome, path="/")
+    sem_cache(response)
+    cfg = get_settings()
+    for nome in (COOKIE_DEMO, COOKIE_SESSAO):  # mesmos atributos da gravação, ou o navegador ignora
+        response.delete_cookie(nome, path="/", httponly=True,
+                               secure=cfg.cookie_secure or cfg.cookie_samesite == "none",
+                               samesite=cfg.cookie_samesite)
     return _identidade(ANONIMO)

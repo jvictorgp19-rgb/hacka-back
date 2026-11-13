@@ -36,6 +36,7 @@ from app.services.llm.client import get_llm
 from app.services.rag.index import Indice, Trecho
 
 SCORE_MINIMO = 6.0
+HISTORICO_RESTRITO = "O texto da versão anterior fica no arquivo histórico da GEPEC."
 SISTEMA = (
     "Você é o Raiz IQ, assistente de normas internas da ACME. Regras obrigatórias:\n"
     "1. Responda SOMENTE com base nos trechos numerados fornecidos pelo usuário.\n"
@@ -190,12 +191,17 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
     # 3. Regra revogada (vale junto com a calculadora ou sozinha)
     antiga = guards.regra_revogada(p)
     if antiga and acervo.autorizado(antiga.fontes, acesso) and not bloqueio:
+        # O conteúdo da versão antiga só vai para quem pode ver essa versão (a NG_111 v2.0.0 é
+        # Sigilosa da GEPEC). Os outros recebem a regra vigente e o aviso de que mudou.
+        historico = acervo.pode_versao(acesso, *antiga.revogado)
+        pegadinha = (antiga.pegadinha if historico else
+                     f"{antiga.vigente_hoje} {HISTORICO_RESTRITO}")
         revogada = RevokedAlert(codigo=antiga.codigo, versaoRevogada=antiga.versao_revogada,
-                                substituidoPor=antiga.substituido_por, pegadinha=antiga.pegadinha)
+                                substituidoPor=antiga.substituido_por, pegadinha=pegadinha)
         if not answer:
-            answer, fontes, intent, resultado = (antiga.resposta, antiga.fontes, "regra_revogada",
-                                                 "permitido")
-            bullets = [antiga.pegadinha]
+            answer = antiga.resposta if historico else antiga.resposta_restrita
+            fontes, intent, resultado = antiga.fontes, "regra_revogada", "permitido"
+            bullets = [pegadinha]
 
     # 4. RAG (+ LLM)
     if not answer:

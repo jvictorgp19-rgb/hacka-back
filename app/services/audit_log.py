@@ -17,7 +17,6 @@ Revisão de segurança: docs/SEGURANCA_NEON_CODEX.md.
 import logging
 import os
 import queue
-import re
 import threading
 import time
 import uuid
@@ -43,7 +42,7 @@ from sqlalchemy.engine import Engine
 
 # A política de conexão fica em app/core/banco.py; os nomes seguem exportados daqui.
 from app.core.banco import criar_engine as _criar_engine
-from app.core.banco import descrever, normalizar_url, url_configurada  # noqa: F401
+from app.core.banco import descrever, normalizar_url, papel_valido, url_configurada  # noqa: F401
 from app.core.banco import producao as _producao
 
 log = logging.getLogger("raiz.auditoria")
@@ -324,9 +323,7 @@ if __name__ == "__main__":
         engine_dono = _criar_engine(url_dono)
         _meta.create_all(engine_dono)
         if engine_dono.dialect.name == "postgresql":
-            papel = os.environ.get("RAIZ_APP_ROLE", "raiz_app")
-            if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", papel):
-                raise SystemExit("RAIZ_APP_ROLE inválido.")
+            papel = papel_valido(os.environ.get("RAIZ_APP_ROLE", "raiz_app"))
             with engine_dono.begin() as c:
                 c.execute(text(VIEW_RESUMO))
                 c.execute(text(f"REVOKE ALL ON auditoria_resumo FROM {papel}"))

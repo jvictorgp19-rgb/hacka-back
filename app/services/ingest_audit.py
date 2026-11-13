@@ -5,7 +5,8 @@ Achados calculados a partir do Silver (cabeçalhos e trechos), não escritos à 
 - documento que cita outro com data posterior à sua (anacronismo);
 - versão substituída cujo cabeçalho ainda mostra vigência futura.
 
-Acesso: só curadoria e diretoria (visão de governança). Os demais recebem lista vazia.
+Acesso: só curadoria e diretoria (visão de governança), e só com os documentos que o sujeito
+pode ver. Os demais recebem lista vazia.
 """
 
 import re
@@ -29,8 +30,11 @@ def auditar(acervo: Acervo, sujeito: Sujeito, hoje: date) -> list[IngestAuditFin
     if not governanca:
         return []
 
+    # Governança não é passe livre: o achado só cita documento que o sujeito pode ver (um achado
+    # sobre a NT_2026-021 revelaria título e datas de um sigiloso da GEINOV à curadora da GEPEC).
+    visiveis = [d for d in acervo.documentos if acervo.pode(sujeito.acesso, d)]
     catalogo = {d.codigo for d in acervo.documentos}
-    vigentes = {d.codigo: d for d in acervo.documentos if d.vigente and d.arquivo}
+    vigentes = {d.codigo: d for d in visiveis if d.vigente and d.arquivo}
     cab = {d.codigo: acervo.cabecalhos.get(f"{d.codigo}@{d.versao}", {})
            for d in vigentes.values()}
     citados: dict[str, set[str]] = {codigo: set() for codigo in vigentes}
@@ -58,7 +62,7 @@ def auditar(acervo: Acervo, sujeito: Sujeito, hoje: date) -> list[IngestAuditFin
                                     "datas de publicação e corrigir a referência cruzada."))
 
     # 2. Versão substituída com vigência impressa ainda no futuro.
-    for doc in acervo.documentos:
+    for doc in visiveis:
         c = acervo.cabecalhos.get(f"{doc.codigo}@{doc.versao}", {})
         fim = c.get("vigencia_fim")
         atual = vigentes.get(doc.codigo)

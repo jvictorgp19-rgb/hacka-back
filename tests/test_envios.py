@@ -165,10 +165,71 @@ def test_formulario_preenchido_vai_para_a_gepec_aprovar(client):
     item = _triado(client, "ana", "ferias_joana.txt", FORM)
     assert item["classificacao"]["nivel"] == "Sigilosa"
     assert item["departamento"]["sigla"] == "GEPEC" and item["aprovacao"] == "pendente"
-    assert _ver(client, "carlos", item["id"]).json()["podeDecidir"]  # gestor do GOP (quem enviou)
+    # Gestor de quem enviou, sem habilitação Sigilosa nem necessidade de conhecer: não vê.
+    assert _ver(client, "carlos", item["id"]).status_code == 404
     assert _ver(client, "curadora_ggc", item["id"]).json()["podeDecidir"]  # setor dono
     assert _ver(client, "diretora_diraf", item["id"]).json()["podeDecidir"]  # diretoria da GEPEC
     assert _ver(client, "helena", item["id"]).status_code == 404
+
+
+def test_aprovador_nao_guarda_acesso_depois_da_decisao(client):
+    item = _triado(client, "bruno", "guia.md", NORMA)  # Interna de júnior: o GEINOV aprova
+    r = _decidir(client, "helena", item["id"], nivel="Sigilosa", setores=["GFI"])
+    assert r.status_code == 200
+    assert _ver(client, "helena", item["id"]).status_code == 404  # fora da lista confirmada
+    assert _ver(client, "fernanda", item["id"]).status_code == 200
+    assert _ver(client, "bruno", item["id"]).status_code == 200  # quem enviou sempre vê
+
+
+def test_recusado_fica_com_quem_enviou_e_quem_decidiu(client):
+    item = _triado(client, "bruno", "guia.md", NORMA)
+    _decidir(client, "helena", item["id"], status="rejected")
+    assert _ver(client, "helena", item["id"]).status_code == 200
+    assert _ver(client, "curadora_ggc", item["id"]).status_code == 404
+
+
+# ---------- retenção e eliminação (LGPD) ----------
+def test_quem_enviou_pede_a_eliminacao(client):
+    item = _triado(client, "bruno", "minhas_ferias.txt",
+                   FORM.replace("Joana Pereira da Silva", "Bruno Lima"))
+    assert item["ferias"]["faltasInjustificadas"] == 8
+    url = f"/document-jobs/{item['id']}/forget"
+    assert client.post(url, headers={"X-Persona-Id": "curadora_ggc"}).status_code == 404
+    r = client.post(url, headers={"X-Persona-Id": "bruno"})
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == envios.EXPURGADO and r.json()["ferias"] is None
+    assert r.json()["classificacao"]["nivel"] == "Sigilosa"  # a classificação fica
+    envios.esperar()
+    with envios._engine().connect() as c:
+        linha = c.execute(select(envios.tabela).where(envios.tabela.c.id == item["id"])
+                          ).mappings().one()
+    assert linha["fatos_ferias"] is None and linha["nome_arquivo"] == envios.EXPURGADO
+
+
+def test_prazo_de_retencao_elimina_os_dados_pessoais(client):
+    from datetime import UTC, datetime, timedelta
+
+    item = _triado(client, "ana", "ferias_joana.txt", FORM)
+    depois = datetime.now(UTC) + timedelta(days=get_settings().retencao_envios_dias + 1)
+    assert envios.expurgar(depois) == 1
+    envio = envios.obter(item["id"])
+    assert envio.fatos_ferias is None and envio.nome_arquivo == envios.EXPURGADO
+    assert envios.expurgar(depois) == 0  # não repete
+
+
+def test_tarefa_cancelada_no_desligamento_apaga_o_temporario(tmp_path):
+    from concurrent.futures import Future
+
+    caminho = tmp_path / "raiz-envio.bin"
+    caminho.write_bytes(b"x")
+    tarefa = Future()
+    with envios._trava:
+        antes = envios._na_fila
+        envios._na_fila += 1
+        envios._temporarios[tarefa] = caminho
+    tarefa.add_done_callback(envios._ao_terminar)
+    assert tarefa.cancel()
+    assert not caminho.exists() and envios._na_fila == antes
 
 
 # ---------- banco ----------

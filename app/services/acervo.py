@@ -88,6 +88,12 @@ class Acervo:
     def documento(self, codigo: str, versao: str) -> Documento | None:
         return self._por_versao.get((codigo, versao))
 
+    def pode_versao(self, acesso: Acesso, codigo: str, versao: str) -> bool:
+        """Versão específica. Sem arquivo no manifesto (só citada no seed), vale a regra da
+        versão vigente do mesmo código."""
+        doc = self.documento(codigo, versao.lstrip("v")) or self.vigente(codigo)
+        return doc is not None and self.pode(acesso, doc)
+
     def vigente(self, codigo: str) -> Documento | None:
         return next((d for d in self.documentos if d.codigo == codigo and d.vigente), None)
 

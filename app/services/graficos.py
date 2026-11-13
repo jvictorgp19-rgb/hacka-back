@@ -10,6 +10,7 @@ Regras de acesso:
   por pessoa: gráfico por usuário seria monitoramento individual (LGPD art. 6º, III).
 """
 
+import logging
 from datetime import date, datetime
 
 import pandas as pd
@@ -19,6 +20,7 @@ from app.services import audit_log, envios
 from app.services.acervo import get_acervo
 from app.services.radar import montar_radar
 
+log = logging.getLogger(__name__)
 PAINEIS = ("acervo", "radar", "triagem", "uso")
 NADA_VISIVEL = "Nada visível para o seu perfil neste painel."
 ORDEM_CRITICIDADE = ["Crítica", "Alta", "Normal"]
@@ -97,7 +99,9 @@ def painel_triagem(sujeito: Sujeito) -> list[dict]:
     df = pd.DataFrame([{"nivel": e.nivel_sugerido, "setor": e.setor_dono,
                         "aprovacao": e.aprovacao or "-"} for e in vistos],
                       columns=["nivel", "setor", "aprovacao"])
-    achados = pd.DataFrame([{"tipo": m["rotulo"]} for e in vistos for m in e.motivos
+    # Rótulo fixo do tipo ("Código-fonte"), nunca o trecho variável depois de ":".
+    achados = pd.DataFrame([{"tipo": str(m.get("rotulo", "")).split(":")[0].strip() or "Outro"}
+                            for e in vistos for m in e.motivos
                             if m.get("nivel") == "Sigilosa"], columns=["tipo"])
     return [
         _grafico("triagem-nivel", "Envios por classificação sugerida", "pizza", "Classificação",
@@ -116,9 +120,13 @@ def painel_triagem(sujeito: Sujeito) -> list[dict]:
 def painel_uso(sujeito: Sujeito, dias: int = 30) -> list[dict]:
     if sujeito.persona is None or not sujeito.persona.governanca:
         raise SemPermissao("O painel de uso é só da governança (curadoria e diretoria).")
-    audit_log.esvaziar(2.0)
-    df = pd.DataFrame(audit_log.resumo(dias),
-                      columns=["dia", "acao", "resultado", "intent", "nivel", "total"])
+    nota = f"Últimos {dias} dias. Agregado por dia, nunca por pessoa (LGPD art. 6º, III)."
+    try:
+        linhas = audit_log.resumo(dias)
+    except Exception as erro:  # noqa: BLE001 - banco fora do ar não derruba a tela
+        log.warning("Painel uso sem dados: %s", type(erro).__name__)
+        linhas, nota = [], "Trilha de auditoria indisponível no momento."
+    df = pd.DataFrame(linhas, columns=["dia", "acao", "resultado", "intent", "nivel", "total"])
     if df.empty:
         por_dia = por_intent = por_nivel = pd.Series(dtype=float)
         resultado: list[dict] = []
@@ -129,7 +137,6 @@ def painel_uso(sujeito: Sujeito, dias: int = 30) -> list[dict]:
         tabela = df.pivot_table(index="dia", columns="resultado", values="total",
                                 aggfunc="sum", fill_value=0).sort_index()
         resultado = [{"nome": str(c), "pontos": _pontos(tabela[c])} for c in tabela.columns]
-    nota = f"Últimos {dias} dias. Agregado por dia, nunca por pessoa (LGPD art. 6º, III)."
     return [
         _grafico("uso-dia", "Eventos por dia", "linha", "Dia", "Eventos",
                  [{"nome": "Eventos", "pontos": _pontos(por_dia)}], nota),

@@ -34,11 +34,17 @@ def responder(sujeito: Sujeito) -> Parcial:
     lista = envios.ferias_de(sujeito.id) if sujeito.persona else []
     com_faltas = [e for e in lista if e.fatos_ferias.get("faltas_injustificadas") is not None]
     if not com_faltas:
+        bullets = [f"**TB_1111-001, Tabela 1:** {TABELA}",
+                   "A regra geral está na NG_111, item 4.1.1."]
+        if sujeito.persona and envios.enviou_formulario_de_outro(sujeito.id):
+            bullets.insert(0, "Um formulário que você enviou está em nome de outra pessoa: ele "
+                              "não entra no seu cálculo. Os dados de outro empregado ficam com a "
+                              "GEPEC.")
         return Parcial(
             "**Não encontrei faltas injustificadas nos arquivos que você enviou.** Envie o "
             "formulário FM_1111-001 preenchido ou o espelho de ponto, ou diga o número de faltas "
             "(por exemplo: \"tenho 7 faltas injustificadas\").",
-            [f"**TB_1111-001, Tabela 1:** {TABELA}", "A regra geral está na NG_111, item 4.1.1."],
+            bullets,
             ferias.FONTES_TABELAS, INTENT, abster_dominio="GEPEC",
             lacuna="Faltas injustificadas do período aquisitivo não constam nos seus envios.")
 
@@ -68,6 +74,8 @@ def responder(sujeito: Sujeito) -> Parcial:
                        "os prazos para férias em DD/MM/AAAA\" para ver o cronograma.")
     if envio.aprovacao == "pendente":
         bullets.append("O envio ainda aguarda aprovação: trate o cálculo como provisório.")
+    if f.get("titular") == "nao_informado":
+        bullets.append("O arquivo não traz o nome do empregado: confira se ele é seu.")
     bullets.append("O número vem do que você enviou. A GEPEC confere no sistema de ponto.")
     outros = len(com_faltas) - 1
     if outros:

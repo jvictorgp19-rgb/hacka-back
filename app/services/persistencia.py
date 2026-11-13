@@ -39,13 +39,13 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     delete,
-    inspect,
     select,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine
 
+from app.core import banco
 from app.core.acl import maior_nivel
 from app.core.banco import criar_engine, url_configurada
 from app.core.config import get_settings
@@ -366,21 +366,7 @@ _trava = threading.Lock()
 
 
 def migrar_colunas(engine: Engine) -> list[str]:
-    """Cria as colunas novas em tabelas que já existiam. Só o papel DONO consegue."""
-    existentes = inspect(engine)
-    criadas = []
-    with engine.begin() as c:
-        for tabela in _meta.sorted_tables:
-            if not existentes.has_table(tabela.name):
-                continue
-            atuais = {col["name"] for col in existentes.get_columns(tabela.name)}
-            for coluna in tabela.columns:
-                if coluna.name in atuais:
-                    continue
-                tipo = coluna.type.compile(dialect=engine.dialect)
-                c.execute(text(f'ALTER TABLE {tabela.name} ADD COLUMN "{coluna.name}" {tipo}'))
-                criadas.append(f"{tabela.name}.{coluna.name}")
-    return criadas
+    return banco.migrar_colunas(engine, _meta)
 
 
 def sincronizar(acervo: Acervo, grafo: Grafo) -> str:
@@ -429,7 +415,6 @@ def sincronizar_em_segundo_plano(acervo: Acervo, grafo: Grafo) -> threading.Thre
     thread = threading.Thread(target=tarefa, name="espelho-acervo", daemon=True)
     thread.start()
     return thread
-
 
 
 if __name__ == "__main__":

@@ -36,7 +36,7 @@ import unicodedata
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import BinaryIO
@@ -60,13 +60,14 @@ from sqlalchemy.dialects.postgresql import insert as insert_postgres
 from sqlalchemy.dialects.sqlite import insert as insert_sqlite
 from sqlalchemy.engine import Engine
 
-from app.core import acl
+from app.core import acl, banco
 from app.core.banco import criar_engine, url_configurada
 from app.core.config import get_settings
-from app.core.personas import Persona
+from app.core.personas import PERSONAS, Persona
 from app.core.setores import setores
 from app.services import audit_log
 from app.services.triagem.extracao import ArquivoRecusado
+from app.services.triagem.ferias import titular_confere
 from app.services.triagem.servico import triar_arquivo
 
 log = logging.getLogger("raiz.envios")
@@ -240,11 +241,25 @@ def _diretoria_de(sigla: str | None) -> str | None:
     return setor.diretoria if setor else None
 
 
+def _sigiloso(envio: Envio) -> bool:
+    return envio.nivel_sugerido != "Interna"  # Sigilosa, não extraído ou ainda sem triagem
+
+
 def e_aprovador(persona: Persona | None, envio: Envio) -> bool:
+    """Quem pode aprovar enquanto o envio está pendente. Nunca quem enviou.
+
+    Sugestão sigilosa: só quem tem habilitação Sigilosa e é do setor dono, da curadoria dele ou da
+    diretoria dele (necessidade de conhecer, LAI art. 25, par. 1º). Sugestão interna (envio de
+    júnior): também gestor ou sênior do setor de quem enviou.
+    """
     if persona is None or persona.id == envio.enviado_por:
         return False
+    sigiloso = _sigiloso(envio)
+    if sigiloso and persona.nivel != "Sigilosa":
+        return False
     dono = envio.setor_dono
-    if persona.aprova and persona.setor in {envio.setor_enviante, dono}:
+    setores_validos = {dono} if sigiloso else {envio.setor_enviante, dono}
+    if persona.aprova and persona.setor in setores_validos:
         return True
     if dono and dono in persona.cura_dominios:
         return True
@@ -257,30 +272,54 @@ def pode_decidir(persona: Persona | None, envio: Envio) -> bool:
 
 
 def pode_ver(persona: Persona | None, acesso: acl.Acesso, envio: Envio) -> bool:
+    """Quem enviou sempre vê. Pendente: só os aprovadores. Aprovado ou dispensado: a regra de
+    acesso do nível e dos setores confirmados (o aprovador não guarda acesso extra). Recusado:
+    quem enviou e quem decidiu."""
     if persona is None:
         return False
-    if persona.id == envio.enviado_por or e_aprovador(persona, envio):
+    if persona.id == envio.enviado_por:
         return True
-    if envio.aprovacao not in ("aprovado", "dispensado") or not envio.nivel_final:
-        return False
-    return acl.pode_ver(acesso, envio.nivel_final, envio.setores_finais)
+    if envio.aprovacao == "pendente":
+        return e_aprovador(persona, envio)
+    if envio.aprovacao == "recusado":
+        return persona.id == envio.decidido_por
+    if envio.aprovacao in ("aprovado", "dispensado") and envio.nivel_final:
+        return acl.pode_ver(acesso, envio.nivel_final, envio.setores_finais)
+    return False
 
 
-def ve_dados_pessoais(persona: Persona | None, envio: Envio) -> bool:
-    """Fatos de férias: quem enviou, quem aprova o envio e a GEPEC (LGPD art. 6º, III)."""
+def ve_dados_pessoais(persona: Persona | None, acesso: acl.Acesso, envio: Envio) -> bool:
+    """Fatos de férias (LGPD art. 6º, III): quem enviou, o aprovador enquanto pendente e a GEPEC
+    habilitada que pode ver o envio."""
     if persona is None:
         return False
-    return (persona.id == envio.enviado_por or e_aprovador(persona, envio)
-            or persona.setor == "GEPEC")
+    if persona.id == envio.enviado_por:
+        return True
+    if envio.aprovacao == "pendente":
+        return e_aprovador(persona, envio)
+    return (persona.setor == "GEPEC" and persona.nivel == "Sigilosa"
+            and pode_ver(persona, acesso, envio))
 
 
 def ferias_de(persona_id: str) -> list[Envio]:
-    """Envios da própria pessoa com fatos de férias, do mais recente ao mais antigo."""
+    """Envios da própria pessoa com fatos de férias, do mais recente ao mais antigo.
+
+    Fica de fora o formulário de outro empregado (nome preenchido diferente de quem enviou).
+    """
     return [e for e in listar() if e.enviado_por == persona_id and e.fatos_ferias
-            and e.status == "ready" and e.aprovacao != "recusado"]
+            and e.status == "ready" and e.aprovacao != "recusado"
+            and e.fatos_ferias.get("titular") != "outro"]
+
+
+def enviou_formulario_de_outro(persona_id: str) -> bool:
+    return any(e.enviado_por == persona_id and e.fatos_ferias
+               and e.fatos_ferias.get("titular") == "outro" for e in listar())
 
 
 def quem_aprova(envio: Envio) -> str:
+    if _sigiloso(envio):
+        return (f"gestor ou sênior habilitado da {envio.setor_dono}, a curadoria dela "
+                "ou a diretoria")
     setores_ = list(dict.fromkeys(s for s in (envio.setor_enviante, envio.setor_dono) if s))
     return "gestor ou sênior da " + " ou da ".join(setores_)
 
@@ -332,11 +371,28 @@ def enfileirar(envio: Envio, caminho: Path) -> Envio:
         _na_fila += 1
     envio.status, envio.mensagem = "processing", "Triagem em andamento."
     _guardar(envio)
-    tarefa = _fila().submit(_processar, envio.id, caminho)
+    try:
+        tarefa = _fila().submit(_processar, envio.id, caminho)
+    except RuntimeError:  # fila já encerrada (desligando)
+        caminho.unlink(missing_ok=True)
+        with _trava:
+            _na_fila -= 1
+        raise FilaCheia from None
     with _trava:
         _temporarios[tarefa] = caminho
-    tarefa.add_done_callback(lambda t: _temporarios.pop(t, None))
+    tarefa.add_done_callback(_ao_terminar)
     return replace(envio)
+
+
+def _ao_terminar(tarefa) -> None:
+    """Tarefa cancelada no desligamento nunca rodou _processar: apaga o temporário aqui."""
+    global _na_fila
+    with _trava:
+        caminho = _temporarios.pop(tarefa, None)
+        if tarefa.cancelled():
+            _na_fila -= 1
+    if tarefa.cancelled() and caminho:
+        caminho.unlink(missing_ok=True)
 
 
 def _aplicar_triagem(envio: Envio, triagem) -> None:
@@ -347,7 +403,11 @@ def _aplicar_triagem(envio: Envio, triagem) -> None:
     envio.setor_dono, envio.confianca_setor = d["sigla"], d["confianca"]
     envio.confianca, envio.motivos, envio.resumo = c.confianca, list(c.motivos), c.resumo
     envio.revisao_humana = triagem.revisao_humana
-    envio.fatos_ferias = triagem.fatos_ferias
+    envio.fatos_ferias = None
+    if triagem.fatos_ferias:  # o nome preenchido só serve para conferir; não é guardado
+        dono = PERSONAS.get(envio.enviado_por)
+        envio.fatos_ferias = {**triagem.fatos_ferias, "titular": titular_confere(
+            triagem.nome_titular, dono.nome if dono else "")}
     if envio.junior or envio.revisao_humana:
         envio.aprovacao = "pendente"
     else:  # Interna, confiança boa, quem enviou não é júnior: segue a sugestão
@@ -431,9 +491,49 @@ def decidir(envio_id: str, persona: Persona, aprovado: bool, resposta: str,
     return copia
 
 
+# ---------- retenção e eliminação (LGPD art. 15, 16 e 18, VI) ----------
+EXPURGADO = "(dados pessoais eliminados)"
+
+
+def _eliminar_dados_pessoais(envio: Envio, motivo: str) -> None:
+    envio.fatos_ferias, envio.nome_arquivo, envio.resposta = None, EXPURGADO, None
+    envio.mensagem = motivo
+
+
+def esquecer(envio_id: str, persona: Persona) -> Envio:
+    """Quem enviou pede a eliminação: some o nome do arquivo, a resposta do aprovador e os fatos
+    de férias. Ficam a classificação e a decisão, sem dado pessoal (LGPD art. 16, I)."""
+    with _trava:
+        envio = _itens.get(envio_id)
+        if envio is None or envio.enviado_por != persona.id:
+            raise DecisaoInvalida("Só quem enviou pode pedir a eliminação.")
+        if envio.status in ("waiting", "processing"):
+            raise DecisaoInvalida("Espere a triagem terminar para pedir a eliminação.")
+        _eliminar_dados_pessoais(envio, "Dados pessoais eliminados a pedido de quem enviou.")
+        copia = replace(envio)
+    _persistir(copia)
+    audit_log.registrar(persona.id, "eliminacao_envio", "permitido", "lgpd_art18", [copia.id],
+                        "-")
+    return copia
+
+
+def expurgar(agora: datetime | None = None) -> int:
+    """Passado o prazo de retenção, elimina os dados pessoais dos envios antigos."""
+    limite = (agora or datetime.now(UTC)) - timedelta(days=get_settings().retencao_envios_dias)
+    vencidos = []
+    with _trava:
+        for envio in _itens.values():
+            if envio.criado_em < limite and envio.nome_arquivo != EXPURGADO:
+                _eliminar_dados_pessoais(envio, "Dados pessoais eliminados: prazo de retenção.")
+                vencidos.append(replace(envio))
+    for envio in vencidos:
+        _persistir(envio)
+    return len(vencidos)
+
+
 # ---------- ciclo de vida ----------
 def restaurar() -> int:
-    """Recarrega do banco os envios recentes (a API pode ter reiniciado)."""
+    """Recarrega do banco os envios recentes (a API pode ter reiniciado) e aplica a retenção."""
     with _engine().connect() as conexao:
         linhas = conexao.execute(select(tabela).order_by(tabela.c.criado_em.desc())
                                  .limit(MAX_EM_MEMORIA)).mappings().all()
@@ -450,6 +550,7 @@ def restaurar() -> int:
             if envio.id not in _itens:
                 _itens[envio.id] = envio
                 restaurados += 1
+    expurgar()
     return restaurados
 
 
@@ -482,13 +583,9 @@ def esperar(timeout_s: float = 30.0) -> bool:
 
 
 def encerrar() -> None:
-    """Cancela o que ainda não começou e apaga esses temporários. O que está rodando termina."""
+    """Cancela o que ainda não começou (_ao_terminar apaga esses temporários). O que está rodando
+    termina e apaga o próprio temporário."""
     _fila().shutdown(wait=False, cancel_futures=True)
-    with _trava:
-        pendentes = list(_temporarios.items())
-    for tarefa, caminho in pendentes:
-        if tarefa.cancelled():
-            caminho.unlink(missing_ok=True)
     _fila_banco().shutdown(wait=True)
     _fila.cache_clear()
     _fila_banco.cache_clear()
@@ -498,22 +595,14 @@ if __name__ == "__main__":
     # Com o papel DONO: cria a tabela e dá ao papel da aplicação só o que ele usa.
     import sys
 
-    from sqlalchemy import inspect, text
+    from sqlalchemy import text
 
-    papel = sys.argv[1] if len(sys.argv) > 1 else "raiz_app"
-    if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", papel):
-        raise SystemExit("Nome de papel inválido.")
+    papel = banco.papel_valido(sys.argv[1] if len(sys.argv) > 1 else "raiz_app")
     try:
         engine = criar_engine(url_configurada())
         _meta.create_all(engine)
-        atuais = {c["name"] for c in inspect(engine).get_columns("triagem_documento")}
-        with engine.begin() as c:
-            for coluna in tabela.columns:  # colunas novas em tabela que já existia
-                if coluna.name not in atuais:
-                    tipo = coluna.type.compile(dialect=engine.dialect)
-                    c.execute(text(f'ALTER TABLE triagem_documento ADD COLUMN "{coluna.name}" '
-                                   f"{tipo}"))
-                    print(f"Coluna criada: {coluna.name}")
+        for coluna in banco.migrar_colunas(engine, _meta):  # tabela que já existia
+            print(f"Coluna criada: {coluna}")
         if engine.dialect.name == "postgresql":
             with engine.begin() as c:
                 c.execute(text(f"REVOKE ALL ON triagem_documento FROM {papel}"))

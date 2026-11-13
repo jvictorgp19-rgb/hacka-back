@@ -23,6 +23,8 @@ _STOP = set(
 SCORE_BLOQUEIO = 3.0
 COBERTURA_MINIMA = 0.5
 _TOKEN = re.compile(r"[a-z]+_[\d-]+|\d+(?:[.,]\d+)*|[a-z]{2,}")
+# Valor solto (3.650, 20%, 12/2027), mas não o número de um código de documento (CTR_2026-012).
+_NUMERO = re.compile(r"(?<![\w-])\d[\d.,/%-]*")
 
 
 def normalizar(texto: str) -> str:
@@ -99,12 +101,17 @@ class Indice:
 
         Devolve só a sigla do setor, nunca o código, o título ou o conteúdo do documento. Quem não
         se identificou não recebe nem isso.
+
+        Números saem da consulta antes de comparar com o conteúdo oculto: sem isso, trocar só o
+        valor na pergunta ("aluguel 3.650" x "aluguel 9.999") e ver se o bloqueio aparece
+        confirmaria um valor sigiloso (oráculo de conteúdo).
         """
         if not acesso.identificado:
             return None
         if acesso not in self._ocultas:
             self._ocultas[acesso] = _Particao(self._acervo.chunks_ocultos(acesso))
-        achados = self._ocultas[acesso].buscar(consulta, 1, None)
+        sem_numeros = _NUMERO.sub(" ", consulta)
+        achados = self._ocultas[acesso].buscar(sem_numeros, 1, None)
         if achados and achados[0].score > max(melhor_score * 1.15, SCORE_BLOQUEIO):
             return achados[0].chunk.dominio
         return None

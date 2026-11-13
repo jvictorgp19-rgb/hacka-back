@@ -13,6 +13,7 @@ quando o texto a cita.
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 
 from app.core.setores import Setor, por_sigla_do_acervo, setores
 from app.services.triagem.detectores import normalizar
@@ -77,13 +78,27 @@ def setor_do_codigo(codigo: str | None, vinculado_a: str | None = None) -> str |
     return None
 
 
-def mencoes(texto: str) -> Counter:
-    """Quantas vezes cada setor é citado pela sigla (BBTS ou da ACME)."""
+@lru_cache(maxsize=1)
+def _siglas() -> tuple[re.Pattern, dict[str, str]]:
     apelidos = {}
     for s in setores().values():
         for a in (s.sigla, *s.siglas_acervo):
             apelidos[a] = s.sigla
-    padrao = re.compile(r"\b(" + "|".join(sorted(apelidos, key=len, reverse=True)) + r")\b")
+    nomes = "|".join(re.escape(a) for a in sorted(apelidos, key=len, reverse=True))
+    return re.compile(r"\b(" + nomes + r")\b"), apelidos
+
+
+@lru_cache(maxsize=1)
+def _palavras_chave() -> dict[str, tuple[re.Pattern, ...]]:
+    """Palavra-chave inteira: "ti" não pode contar dentro de "partida"."""
+    return {sigla: tuple(re.compile(r"\b" + re.escape(normalizar(p)) + r"\b")
+                         for p in setor.palavras_chave)
+            for sigla, setor in _departamentos().items()}
+
+
+def mencoes(texto: str) -> Counter:
+    """Quantas vezes cada setor é citado pela sigla (BBTS ou da ACME)."""
+    padrao, apelidos = _siglas()
     return Counter(apelidos[m.group(1)] for m in padrao.finditer(texto))
 
 
@@ -121,8 +136,9 @@ def sugerir(texto: str, formato: str, codigo: str | None, vinculado_a: str | Non
             pontos[sigla] += min(n, 15) * 0.5
 
     normal = normalizar(texto)
-    for sigla, setor in candidatos.items():
-        hits = sum(min(normal.count(normalizar(p)), 5) for p in setor.palavras_chave)
+    palavras = _palavras_chave()
+    for sigla in candidatos:
+        hits = sum(min(len(p.findall(normal)), 5) for p in palavras.get(sigla, ()))
         if hits:
             pontos[sigla] += hits * 0.5
     citados_txt = ", ".join(f"{s} ({n}x)" for s, n in citados.most_common(4))

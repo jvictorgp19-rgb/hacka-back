@@ -37,8 +37,11 @@ class Revogada:
     codigo: str
     versao_revogada: str
     substituido_por: str
-    pegadinha: str
+    pegadinha: str  # cita o conteúdo da versão antiga: só para quem pode ver essa versão
     resposta: str
+    revogado: tuple[str, str]  # (código, versão) da versão substituída
+    vigente_hoje: str  # só a regra vigente, para quem não vê o histórico
+    resposta_restrita: str
 
 
 def regra_revogada(p: Parametros) -> Revogada | None:
@@ -55,6 +58,12 @@ def regra_revogada(p: Parametros) -> Revogada | None:
             resposta="**Eram 30 dias na NG_111 v2.0.0, que foi substituída em 03/08/2026.** "
                      "Hoje vale a v3.0.0: a solicitação precisa de **45 dias corridos** de "
                      "antecedência.",
+            revogado=("NG_111", "2.0.0"),
+            vigente_hoje="A NG_111 v3.0.0 vigente exige 45 dias corridos de antecedência "
+                         "(item 4.5.1).",
+            resposta_restrita="**Hoje vale a NG_111 v3.0.0: a solicitação precisa de 45 dias "
+                              "corridos de antecedência** (item 4.5.1). A versão anterior foi "
+                              "substituída em 03/08/2026.",
         )
     if p.tem("3 ideias", "tres ideias") or (p.tem("ideia") and p.tem("2026", "ano passado",
                                                                     "antes", "v1")):
@@ -68,6 +77,12 @@ def regra_revogada(p: Parametros) -> Revogada | None:
             resposta="**Não. Na edição 2027 são até 2 ideias por proponente**, contando as "
                      "inscritas em equipe (RG_1100 v2.0.0, item 4.1.2). O limite de 3 ideias era "
                      "da v1.0.0, substituída em 20/10/2026.",
+            revogado=("RG_1100", "1.0.0"),
+            vigente_hoje="A RG_1100 v2.0.0 vigente permite até 2 ideias por proponente, contando "
+                         "as de equipe (item 4.1.2).",
+            resposta_restrita="**Na edição 2027 são até 2 ideias por proponente**, contando as "
+                              "inscritas em equipe (RG_1100 v2.0.0, item 4.1.2). A versão "
+                              "anterior foi substituída em 20/10/2026.",
         )
     return None
 

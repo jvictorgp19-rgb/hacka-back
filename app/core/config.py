@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     triagem_isolar: bool = True  # parser em processo separado; False só em teste
     triagem_workers: int = 2
     triagem_fila_max: int = 20
+    # Dados pessoais dos envios (nome do arquivo, resposta, fatos de férias) são eliminados
+    # depois deste prazo (LGPD art. 15 e 16). Ficam a classificação e a decisão.
+    retencao_envios_dias: int = 180
 
     @property
     def origens_cors(self) -> list[str]:

@@ -22,6 +22,7 @@ Os formatos abaixo espelham os tipos TypeScript do `hacka-front`, branch `lana`
 | `GET /document-jobs/{id}` | — | `UploadItem` (404 se o sujeito não pode ver) |
 | `GET /document-jobs?aprovacao=` | `pendente`, `aprovado`, `recusado` ou `dispensado` (opcional) | `UploadItem[]` que o sujeito vê |
 | `POST /document-jobs/{id}/decision` | `{status: approved\|rejected, response, persona, nivel?, setores?}` | `UploadItem` |
+| `POST /document-jobs/{id}/forget` | — (só quem enviou) | `UploadItem` sem dado pessoal (LGPD art. 18, VI) |
 | `GET /analyses/charts?panel=&hoje=` | `panel`: `acervo`, `radar`, `triagem` ou `uso` | `Grafico[]` |
 | `GET /health` | — | `{"status": "ok"}` |
 
@@ -79,15 +80,27 @@ Aprovação, conforme docs/CLASSIFICACAO_BBTS.md e LAI art. 27:
 - **Quando é exigida.** Em todo envio de desenvolvedor júnior. Também quando a sugestão pede
   revisão humana: sigilosa, conteúdo não extraído ou confiança baixa. Nos demais casos,
   `aprovacao` é `dispensado`.
-- **Quem aprova.** Gestor ou sênior do setor de quem enviou, ou do setor dono. Também a curadoria
-  do setor dono e o diretor da diretoria do setor dono. Quem enviou nunca aprova o próprio envio
-  (`403`).
+- **Quem aprova.** Quem enviou nunca aprova o próprio envio (`403`). Os demais dependem da
+  sugestão:
+  - Sugestão Interna (envio de júnior): gestor ou sênior do setor de quem enviou ou do setor
+    dono, a curadoria do setor dono e o diretor da diretoria do setor dono.
+  - Sugestão Sigilosa ou não extraída: só quem tem habilitação Sigilosa e necessidade de
+    conhecer, ou seja, gestor ou sênior do setor dono, a curadoria dele ou o diretor da diretoria
+    dele (LAI art. 25, § 1º). O gestor de quem enviou, sem habilitação, não vê o envio.
 - **O que o aprovador pode mudar.** Ele confirma ou corrige `nivel` (`Interna` ou `Sigilosa`) e
   `setores`, que são siglas BBTS; o primeiro setor da lista é o dono. Ele também pode recusar o
   envio.
-- **Quem vê.** Antes da decisão, só quem enviou e os aprovadores. Depois da decisão, vale a regra
-  de acesso do nível e dos setores confirmados. Quem não pode ver recebe `404`, para não saber
-  que o envio existe.
+- **Quem vê.** Antes da decisão, só quem enviou e os aprovadores. Depois da aprovação, vale a
+  regra de acesso do nível e dos setores confirmados, e o aprovador não guarda acesso extra.
+  Envio recusado fica com quem enviou e com quem decidiu. Quem não pode ver recebe `404`, para
+  não saber que o envio existe.
+
+Retenção e eliminação (LGPD art. 15, 16 e 18, VI):
+
+- Passados `RETENCAO_ENVIOS_DIAS` (padrão 180), o nome do arquivo, a resposta do aprovador e os
+  fatos de férias são eliminados. A classificação e a decisão ficam, sem dado pessoal.
+- Quem enviou pode pedir a eliminação antes do prazo com `POST /document-jobs/{id}/forget`.
+  Para os outros, a rota responde `404`. Com a triagem ainda rodando, responde `409`.
 
 Férias pelos envios:
 
@@ -97,8 +110,12 @@ Férias pelos envios:
 - Arquivo com esses fatos é sugerido como Sigiloso da GEPEC (achado `registro_ferias`).
 - O campo `ferias` do `UploadItem` traz `{faltasInjustificadas, origemFaltas, periodoInicio,
   periodoFim, admissao, inicioGozo, diasDeFerias, paginas}`.
-- `ferias` só aparece para quem enviou, para os aprovadores do envio e para a GEPEC, mesmo
-  depois da aprovação (LGPD art. 6º, III). Para os demais, o campo vem `null`.
+- `ferias` só aparece para quem enviou, para o aprovador enquanto o envio está pendente e para a
+  GEPEC habilitada que pode ver o envio, mesmo depois da aprovação (LGPD art. 6º, III). Para os
+  demais, o campo vem `null`.
+- O nome do empregado preenchido no formulário só serve para conferir se o arquivo é de quem
+  enviou. Ele não é guardado. Formulário de outro empregado não entra no cálculo do chat, e o
+  chat avisa.
 - No chat, a pergunta "quantos dias de férias eu tenho?", sem número, usa o envio mais recente
   da própria pessoa. O cálculo segue a TB_1111-001, Tabela 1, e a NG_111, item 4.1.1.
   A resposta cita o arquivo e avisa quando o envio ainda aguarda aprovação.

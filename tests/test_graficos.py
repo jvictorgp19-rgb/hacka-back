@@ -71,6 +71,7 @@ def test_triagem_so_conta_envios_visiveis(client):
 def test_uso_so_para_governanca_e_sem_pessoa(client):
     client.post("/chat", json={"message": "Quantos dias de férias com 3 faltas?",
                                "personaId": "ana"})
+    assert audit_log.esvaziar()  # a trilha grava em segundo plano
     assert _painel(client, "uso", "ana").status_code == 403
     assert _painel(client, "uso", None).status_code == 401
     r = _painel(client, "uso", "diretora_diraf")
@@ -79,6 +80,16 @@ def test_uso_so_para_governanca_e_sem_pessoa(client):
     assert sum(_serie(graficos, "uso-dia").values()) >= 1
     corpo = r.text
     assert "ana" not in corpo.split('"nota"')[0]  # nenhuma série por pessoa
+
+
+def test_uso_com_banco_fora_do_ar_vem_vazio_com_nota(client, monkeypatch):
+    def falha(_dias):
+        raise ConnectionError("banco fora")
+
+    monkeypatch.setattr(audit_log, "resumo", falha)
+    r = _painel(client, "uso", "diretora_diraf")
+    assert r.status_code == 200
+    assert all(g["nota"] == "Trilha de auditoria indisponível no momento." for g in r.json())
 
 
 def test_painel_desconhecido_e_422(client):

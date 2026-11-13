@@ -11,8 +11,13 @@ from pathlib import Path
 from app.core.setores import rotulo
 from app.services.ingest.header import parse_cabecalho
 from app.services.triagem import departamento, detectores
-from app.services.triagem.extracao import Extracao, extrair, extrair_isolado
-from app.services.triagem.ferias import extrair_fatos
+from app.services.triagem.extracao import (
+    ArquivoRecusado,
+    Extracao,
+    extrair,
+    rodar_isolado,
+)
+from app.services.triagem.ferias import extrair_fatos, nome_titular
 
 MIN_CARACTERES = 40  # abaixo disso o PDF é imagem (digitalizado): sem OCR, não há o que ler
 FORMATOS_COM_IMAGEM = {"pdf", "docx", "xlsx"}  # texto puro curto é conteúdo, não digitalização
@@ -52,12 +57,18 @@ class Triagem:
     avisos: list[str] = field(default_factory=list)
     texto_paginas: list[str] = field(default_factory=list)  # só para a ficha da IA; nunca persistir
     fatos_ferias: dict | None = None  # faltas e datas (sem nome/CPF): ver triagem/ferias.py
+    nome_titular: str | None = None  # só para conferir quem é o empregado; nunca persistir
 
     def as_dict(self, com_texto: bool = False) -> dict:
         d = asdict(self)
         if not com_texto:
             d.pop("texto_paginas")
+            d.pop("nome_titular")
         return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Triagem":
+        return cls(**{**d, "classificacao": Classificacao(**d["classificacao"])})
 
 
 def sha256_arquivo(caminho: Path) -> str:
@@ -117,11 +128,26 @@ def classificar(extracao: Extracao, nome: str, caminho: Path) -> Triagem:
     return Triagem(nome, extracao.formato, tamanho, sha, len(extracao.paginas),
                    extracao.caracteres, "ready", cab.as_dict(), classe, sugestao.as_dict(),
                    revisao, extracao.avisos, extracao.paginas,
-                   fatos.as_dict() if fatos else None)
+                   fatos.as_dict() if fatos else None,
+                   nome_titular(extracao.paginas) if fatos else None)
+
+
+def _triar_no_filho(caminho: str, nome: str, saida) -> None:
+    try:
+        triagem = classificar(extrair(Path(caminho), nome), nome, Path(caminho))
+        saida.send(("ok", triagem.as_dict(com_texto=True)))
+    except ArquivoRecusado as erro:
+        saida.send(("recusado", str(erro)))
+    except Exception as erro:  # noqa: BLE001 - qualquer falha vira recusa genérica
+        saida.send(("recusado", f"Não foi possível ler o arquivo ({type(erro).__name__})."))
+    finally:
+        saida.close()
 
 
 def triar_arquivo(caminho: Path, nome: str | None = None, isolar: bool = True) -> Triagem:
-    """Triagem completa. `isolar` roda o parser em outro processo (padrão para upload)."""
+    """Triagem completa. `isolar` roda leitura E detecção em outro processo, com tempo limite:
+    arquivo hostil (parser lento ou texto feito para travar regex) não segura a API."""
     nome = nome or caminho.name
-    extracao = extrair_isolado(caminho, nome) if isolar else extrair(caminho, nome)
-    return classificar(extracao, nome, caminho)
+    if isolar:
+        return Triagem.from_dict(rodar_isolado(_triar_no_filho, str(caminho), nome))
+    return classificar(extrair(caminho, nome), nome, caminho)

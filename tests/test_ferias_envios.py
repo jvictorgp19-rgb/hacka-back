@@ -75,14 +75,33 @@ def test_dados_de_ferias_so_para_a_pessoa_aprovador_e_gepec(client):
     item = _enviar(client, "bruno", "minhas_ferias.txt", FORM.encode())
     ver = lambda p: client.get(f"/document-jobs/{item['id']}",  # noqa: E731
                                headers={"X-Persona-Id": p})
-    assert ver("helena").json()["ferias"]["diasDeFerias"] == 24  # aprovadora (GEINOV)
-    assert ver("curadora_ggc").json()["ferias"] is not None  # GEPEC
+    assert ver("curadora_ggc").json()["ferias"]["diasDeFerias"] == 24  # aprovadora (GEPEC)
+    assert ver("helena").status_code == 404  # tech lead do júnior: dado pessoal não é do GEINOV
     assert ver("fernanda").status_code == 404
     r = client.post(f"/document-jobs/{item['id']}/decision",
                     json={"status": "approved", "nivel": "Interna", "setores": ["GEPEC"]},
-                    headers={"X-Persona-Id": "helena"})
+                    headers={"X-Persona-Id": "curadora_ggc"})
     assert r.status_code == 200
     assert ver("marina").status_code == 200 and ver("marina").json()["ferias"] is None
+    assert ver("curadora_ggc").json()["ferias"] is not None  # GEPEC habilitada
+
+
+def test_formulario_de_outro_empregado_nao_entra_no_calculo(client, perguntar):
+    item = _enviar(client, "bruno", "ferias_joana.txt",
+                   FORM.replace("Bruno Lima", "Joana Pereira").encode())
+    assert item["ferias"]["faltasInjustificadas"] == 8  # quem enviou vê o que enviou
+    r = perguntar(PERGUNTA, persona="bruno")
+    assert "8 faltas" not in r["answer"]
+    assert any("outra pessoa" in b for b in r["bullets"])
+
+
+def test_titular_confere_o_nome_inteiro_da_persona():
+    from app.services.triagem.ferias import nome_titular, titular_confere
+
+    assert nome_titular([FORM]) == "bruno lima"
+    assert titular_confere("bruno lima", "Bruno") == "proprio"
+    assert titular_confere("joana pereira", "Bruno") == "outro"
+    assert titular_confere(None, "Bruno") == "nao_informado"
 
 
 def test_chat_nao_usa_o_envio_de_outra_pessoa(client, perguntar):

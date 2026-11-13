@@ -4,10 +4,11 @@ Revisão de segurança: docs/SEGURANCA_NEON_CODEX.md.
 """
 
 import os
+import re
 from pathlib import Path
 
 import certifi
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, create_engine, inspect, text
 from sqlalchemy.engine import URL, Engine, make_url
 
 from app.core.config import get_settings
@@ -109,3 +110,29 @@ def criar_engine(url: URL) -> Engine:
 
 def url_configurada() -> URL:
     return normalizar_url(get_settings().database_url, producao())
+
+
+# ---------- usados pelos scripts de preparo (rodam com o papel DONO) ----------
+def papel_valido(papel: str) -> str:
+    """Nome de papel do Postgres que pode entrar num GRANT sem aspas (vai interpolado no SQL)."""
+    if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", papel or ""):
+        raise SystemExit("Nome de papel inválido.")
+    return papel
+
+
+def migrar_colunas(engine: Engine, meta: MetaData) -> list[str]:
+    """Cria as colunas novas em tabelas que já existiam. Só o papel DONO consegue."""
+    existentes = inspect(engine)
+    criadas = []
+    with engine.begin() as c:
+        for tabela in meta.sorted_tables:
+            if not existentes.has_table(tabela.name):
+                continue
+            atuais = {col["name"] for col in existentes.get_columns(tabela.name)}
+            for coluna in tabela.columns:
+                if coluna.name in atuais:
+                    continue
+                tipo = coluna.type.compile(dialect=engine.dialect)
+                c.execute(text(f'ALTER TABLE {tabela.name} ADD COLUMN "{coluna.name}" {tipo}'))
+                criadas.append(f"{tabela.name}.{coluna.name}")
+    return criadas

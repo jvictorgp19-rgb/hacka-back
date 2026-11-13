@@ -82,10 +82,25 @@ def test_auditoria_do_acervo_so_para_governanca(client):
                 if a["severidade"] == "Documento Referenciado Ausente"}
     # A NG_010 só é citada pela NG_111 v2.0.0 (substituída), que fica fora desta auditoria.
     assert "NG_012" in ausentes
-    temporais = [a["descricao"] for a in achados if a["severidade"] == "Inconsistência Temporal"]
-    assert any("NG_1130" in t and "NT_2026-021" in t for t in temporais)
     assert any("NG_111 v2.0.0" in a["documentosEnvolvidos"][0] for a in achados
                if a["severidade"] == "Conflito de Vigência")
+    # A NT_2026-021 é sigilosa da GEINOV, DIRTEC e DIRAF: a curadora da GEPEC não recebe achado
+    # que cite título ou data dela. A diretora da DIRAF recebe.
+    assert "NT_2026-021" not in str(achados)
+    diretora = client.get("/ingest?hoje=2026-11-12", headers=P["diretora"]).json()
+    temporais = [a["descricao"] for a in diretora
+                 if a["severidade"] == "Inconsistência Temporal"]
+    assert any("NG_1130" in t and "NT_2026-021" in t for t in temporais)
+
+
+def test_docs_versao_substituida_segue_a_propria_classificacao(client):
+    ana = {(d["codigo"], d["versao"]) for d in
+           client.get("/docs", headers=P["ana"]).json()["substituidos"]}
+    assert ("NG_111", "2.0.0") not in ana  # Sigilosa da GEPEC, mesmo com a v3.0.0 visível
+    assert ("RG_1100", "1.0.0") in ana  # sem arquivo próprio: segue a versão vigente
+    curadora = {(d["codigo"], d["versao"]) for d in
+                client.get("/docs", headers=P["curadora"]).json()["substituidos"]}
+    assert ("NG_111", "2.0.0") in curadora
 
 
 def test_relatorio_json(client):
@@ -154,6 +169,15 @@ def test_versao_substituida_fora_da_busca_comum():
     ana = indice.buscar("solicitação antecedência mínima 30 dias", Acesso("GOP"), k=30,
                         incluir_substituidos=True)
     assert all(t.chunk.vigente for t in ana)
+
+
+def test_bloqueio_nao_confirma_valor_sigiloso():
+    indice = get_indice()
+    gop = Acesso("GOP")
+    base = indice.dominio_bloqueado("aluguel mensal coworking", gop, 0.0)
+    for valor in ("3.650", "3.650,00", "9.999", "20%", "12/2027"):
+        assert indice.dominio_bloqueado(f"aluguel mensal coworking {valor}", gop, 0.0) == base
+    assert indice.dominio_bloqueado("3.650", gop, 0.0) is None  # só o número: nada
 
 
 def test_bloqueio_revela_so_o_setor_e_nunca_para_anonimo():

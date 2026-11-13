@@ -14,6 +14,7 @@ senha ou o preço não saem daqui (LGPD art. 6º, III).
 import re
 import unicodedata
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 
 LIMIAR_COMERCIAL = 15.0  # calibrado no acervo: interno chega a 9,5; sigiloso começa em 28,5
 TOPO = 1500  # cabeçalho: onde fica a marcação de classificação
@@ -32,6 +33,7 @@ class Achado:
         return asdict(self)
 
 
+@lru_cache(maxsize=16)
 def normalizar(texto: str) -> str:
     sem_acento = unicodedata.normalize("NFD", texto.lower())
     return "".join(c for c in sem_acento if unicodedata.category(c) != "Mn")
@@ -71,34 +73,43 @@ def luhn_valido(numero: str) -> bool:
 
 # ---------- padrões ----------
 _CPF = re.compile(r"(?<![\d.])\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?![\d.])")
-_MATRICULA = re.compile(r"matr[ií]cula\s*(?:n[º°o.]*)?\s*:?\s*\d{4,}", re.IGNORECASE)
+# Quantificadores limitados ({0,3}): \s* encadeado é backtracking quadrático (ReDoS).
+_MATRICULA = re.compile(r"matr[ií]cula[ \t]{0,3}(?:n[º°o.]{0,3})?[ \t]{0,3}:?[ \t]{0,3}\d{4,12}",
+                        re.IGNORECASE)
 _NOME_PREENCHIDO = re.compile(
-    r"\bnome(?: do empregado| completo| do titular)?\s*:\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]+"
-    r"(?:\s+(?:d[aeo]s?\s+)?[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]+)+")
-_RG = re.compile(r"\bRG\s*(?:n[º°o.]*)?\s*:?\s*\d{1,2}\.?\d{3}\.?\d{3}-?[\dXx]\b")
-_EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
+    r"\bnome(?: do empregado| completo| do titular)?[ \t]{0,3}:[ \t]{0,3}"
+    r"[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]{1,30}"
+    r"(?:[ \t]{1,3}(?:d[aeo]s?[ \t]{1,3})?[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]{1,30}){1,6}")
+_RG = re.compile(r"\bRG[ \t]{0,3}(?:n[º°o.]{0,3})?[ \t]{0,3}:?[ \t]{0,3}"
+                 r"\d{1,2}\.?\d{3}\.?\d{3}-?[\dXx]\b")
+_EMAIL = re.compile(r"\b[\w+-][\w.+-]{0,63}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,6}\b")
 _TELEFONE = re.compile(r"\(?\b\d{2}\)?\s?9?\d{4}-\d{4}\b")
-_ADMISSAO = re.compile(r"admiss[aã]o\s*:?\s*\d{2}/\d{2}/\d{4}", re.IGNORECASE)
+_ADMISSAO = re.compile(r"admiss[aã]o[ \t]{0,3}:?[ \t]{0,3}\d{2}/\d{2}/\d{4}", re.IGNORECASE)
 
 _SENSIVEL = re.compile(
-    r"\bcid[- ]?(?:10)?\s*:?\s*[a-tv-z]\d{2}(?:\.\d)?\b|atestado medico|"
+    r"\bcid[- ]?(?:10)?[ \t]{0,3}:?[ \t]{0,3}[a-tv-z]\d{2}(?:\.\d)?\b|atestado medico|"
     r"laudo (?:medico|psicologico|pericial)|prontuario|diagnostico de|biometri|"
     r"impressao digital|dado genetico|"
     r"filiad[oa] ao sindicato|filiacao sindical|religiao:|orientacao sexual|origem racial|etnia:")
 _SENSIVEL_GENERICO = re.compile(r"\b(?:doenca|gestante|gravidez|hiv|deficiencia)\b")
 
 _CREDENCIAL = re.compile(
-    r"(?:senha|password|passwd|pwd|secret|token|api[_-]?key|chave de acesso)\s*[:=]\s*\S{4,}|"
+    r"(?:senha|password|passwd|pwd|secret|token|api[_-]?key|chave de acesso)[ \t]{0,3}[:=]"
+    r"[ \t]{0,3}\S{4,200}|"
     r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----|\bAKIA[0-9A-Z]{16}\b|"
-    r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?)://[^\s:/]+:[^\s@]+@", re.IGNORECASE)
+    r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?)://[^\s:/]{1,100}:[^\s@]{1,200}@",
+    re.IGNORECASE)
 
-_AGENCIA_CONTA = re.compile(r"ag[eê]ncia\s*:?\s*\d{3,5}(?:-[\dxX])?[\s,;/|]+(?:c/?c|conta"
-                            r"(?: corrente)?)\s*:?\s*\d{3,12}-[\dxX]", re.IGNORECASE)
+_AGENCIA_CONTA = re.compile(r"ag[eê]ncia[ \t]{0,3}:?[ \t]{0,3}\d{3,5}(?:-[\dxX])?[\s,;/|]{1,5}"
+                            r"(?:c/?c|conta(?: corrente)?)[ \t]{0,3}:?[ \t]{0,3}\d{3,12}-[\dxX]",
+                            re.IGNORECASE)
 _CARTAO = re.compile(r"\b(?:\d{4}[ -]){3}\d{1,7}\b")
 _EXTRATO = re.compile(r"\b(?:saldo|extrato)\b[^\n]{0,40}r\$\s?\d")
 
-_MARCA_SIGILO = re.compile(r"^#sigilosa\b|\b(?:confidencial|sigiloso|reservado|secreto|"
-                           r"ultrassecreto)\b", re.IGNORECASE | re.MULTILINE)
+# Inclui os nomes de nível do próprio sistema (Sigilosa, Restrita) e o feminino da LAI.
+_MARCA_SIGILO = re.compile(r"^#(?:sigilosa|restrita)\b|\b(?:confidencial|sigiloso|sigilosa|"
+                           r"reservado|reservada|secreto|secreta|ultrassecreto|ultrassecreta|"
+                           r"restrita)\b", re.IGNORECASE | re.MULTILINE)
 _MARCA_INTERNA = re.compile(r"^#interna\b|\buso interno\b", re.IGNORECASE | re.MULTILINE)
 
 _CODIGO_LINHA = re.compile(

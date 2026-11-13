@@ -222,9 +222,20 @@ def _no_filho(caminho: str, nome: str, saida) -> None:
 def extrair_isolado(caminho: Path, nome: str, tempo_limite_s: float = TEMPO_LIMITE_S
                     ) -> Extracao:
     """Roda extrair() em outro processo. Estouro de tempo mata o processo e recusa o arquivo."""
+    return Extracao(**rodar_isolado(_no_filho, str(caminho), nome,
+                                    tempo_limite_s=tempo_limite_s))
+
+
+def rodar_isolado(alvo, caminho: str, nome: str, tempo_limite_s: float = TEMPO_LIMITE_S
+                  ) -> dict:
+    """Roda alvo(caminho, nome, saida) em processo novo e devolve o dict enviado por ele.
+
+    O alvo manda ("ok", dict) ou ("recusado", mensagem) pelo pipe. Estouro de tempo mata o
+    processo e recusa o arquivo.
+    """
     contexto = mp.get_context("spawn")
     receber, enviar = contexto.Pipe(duplex=False)
-    processo = contexto.Process(target=_no_filho, args=(str(caminho), nome, enviar), daemon=True)
+    processo = contexto.Process(target=alvo, args=(caminho, nome, enviar), daemon=True)
     processo.start()
     enviar.close()
     try:
@@ -243,4 +254,4 @@ def extrair_isolado(caminho: Path, nome: str, tempo_limite_s: float = TEMPO_LIMI
             processo.join(1)
     if status != "ok":
         raise ArquivoRecusado(valor)
-    return Extracao(**valor)
+    return valor
