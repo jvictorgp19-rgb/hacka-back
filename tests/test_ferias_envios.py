@@ -115,3 +115,11 @@ def test_anonimo_nao_recebe_dado_de_envio(client, perguntar):
     _enviar(client, "bruno", "minhas_ferias.txt", FORM.encode())
     r = perguntar(PERGUNTA, persona=None)
     assert "8 faltas" not in r["answer"]
+
+
+@pytest.mark.parametrize("pergunta", ["Quantos dias de antecedência para pedir férias?",
+                                      "Quantos dias de antecedência eu tenho para pedir férias?"])
+def test_antecedencia_e_regra_da_norma_nao_saldo_de_envio(perguntar, pergunta):
+    r = perguntar(pergunta, tema="todos")
+    assert "45 dias" in r["answer"] and "faltas injustificadas" not in r["answer"]
+    assert "NG_111" in {c["codigo"] for c in r["citations"]}
