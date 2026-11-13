@@ -40,7 +40,7 @@ from sqlalchemy.engine import Engine
 
 # A política de conexão fica em app/core/banco.py; os nomes seguem exportados daqui.
 from app.core.banco import criar_engine as _criar_engine
-from app.core.banco import descrever, normalizar_url, papel_valido, url_configurada  # noqa: F401
+from app.core.banco import descrever, normalizar_url, url_configurada  # noqa: F401
 from app.core.banco import producao as _producao
 
 log = logging.getLogger("raiz.auditoria")

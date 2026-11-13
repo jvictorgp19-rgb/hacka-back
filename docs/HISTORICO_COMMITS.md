@@ -240,12 +240,32 @@ Pedido do usuário: remover o back e o front da Lana, deixar só o back alinhado
 - **Teste:** `test_antecedencia_e_regra_da_norma_nao_saldo_de_envio`. 219 testes passando;
   eval 100%.
 
-### docs: contrato, pendências do front e histórico (commit desta documentação)
+### `5e6f5b0` docs: contrato, pendências do front e histórico de cada commit
 
 - **O que:** `docs/CONTRATO.md` só com as rotas que o front chama; `docs/PENDENCIAS_FRONT.md`
   atualizado para a branch `Homolog`; este arquivo; README com as rotas atuais e o curl de
   `/conversations/messages`; `docs/METODOLOGIA_GRAFO.md`, `docs/PLANO.md` e
   `docs/SEGURANCA_GRAFO_CODEX.md` marcados como históricos onde citam rotas removidas.
+
+### fix: corrige achados do /code-review do PR (commit seguinte ao `5e6f5b0`)
+
+- **Intenção de férias.** O `913eb10` estreitou demais o gatilho: "Quantos dias tenho de
+  férias?" e "Quantos dias me restam de férias?" deixaram de usar o envio da pessoa. Volta
+  "quantos dias" e saem só as perguntas de prazo ("antecedência", "dias antes").
+- **Capacidade `approve`.** Sem rota de decisão, ninguém aprova pela API. O `GET /identity`
+  deixa de anunciar `approve`. O front não usava essa capacidade.
+- **Eliminação a pedido (LGPD art. 18, VI).** Sem a rota `/forget`, faltava um caminho para o
+  encarregado (LGPD art. 41). `scripts/eliminar_envio.py <id>` elimina nome do arquivo, resposta
+  e fatos de férias de um envio, registra na auditoria (LGPD art. 37) e pede para reiniciar a
+  API. Envio ainda em triagem é recusado.
+- **Limpeza.** Comentário do CORS (o `allow_credentials` fica: o front chama com
+  `credentials: 'include'`), import morto `papel_valido` em `audit_log`, comentários que
+  apontavam `app/services/access.py`, o painel de uso e o `POST /identity`.
+- **Teste:** `test_outras_formas_de_perguntar_o_proprio_saldo`,
+  `test_prazo_com_dias_antes_nao_vira_saldo_de_envio` e
+  `test_encarregado_elimina_os_dados_pessoais_a_pedido`. 223 testes passando; eval 100%.
+- **Não mudou, por decisão do usuário:** o envio pendente sem rota de decisão, o modo token sem
+  cookie e a saída do `/health` (pedido "remova" para as rotas que o front não chama).
 
 ## Mudança no front ligada a este PR
 

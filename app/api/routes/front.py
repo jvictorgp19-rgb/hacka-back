@@ -173,7 +173,7 @@ def create_access_request(body: NovoPedido, request: Request, response: Response
         item = _gravar(lambda: front.criar_pedido(sujeito, body.reason, body.owner))
     except front.Invalido as erro:
         raise HTTPException(422, str(erro)) from None
-    # O id do pedido vai em `fontes`: `intent` é agregado no painel de uso e não leva id.
+    # `intent` leva só o setor dono; o id do pedido vai em `fontes`, como nas outras rotas.
     audit_log.registrar(sujeito.id, "pedido_acesso", "permitido", f"dono:{item['owner']}",
                         [f"pedido:{item['id']}"], sujeito.nivel)
     return item

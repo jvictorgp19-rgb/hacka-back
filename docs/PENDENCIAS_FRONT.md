@@ -61,7 +61,8 @@ mas não tem tela para:
 - o aprovador decidir o envio que exige aprovação (de júnior, sigiloso ou com confiança baixa).
   O envio fica `pendente`, visível só para quem enviou e para os aprovadores;
 - quem enviou pedir a eliminação dos dados pessoais antes do prazo (LGPD art. 18, VI). Até
-  existir a tela, o pedido vai pelo encarregado (LGPD art. 41). A eliminação automática por
+  existir a tela, o pedido vai pelo encarregado (LGPD art. 41), que roda
+  `python scripts/eliminar_envio.py <id>`. A eliminação automática por
   `RETENCAO_ENVIOS_DIAS` continua.
 
 As rotas de decisão e de eliminação saíram do back junto com as outras que o front não chama.

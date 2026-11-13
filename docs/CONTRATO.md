@@ -157,7 +157,8 @@ Retenção (LGPD art. 15 e 16):
 
 - Passados `RETENCAO_ENVIOS_DIAS` (padrão 180), o nome do arquivo, a resposta do aprovador e os
   fatos de férias são eliminados. A classificação fica, sem dado pessoal.
-- O pedido de eliminação antes do prazo (LGPD art. 18, VI) não tem rota: vai pelo encarregado
+- O pedido de eliminação antes do prazo (LGPD art. 18, VI) não tem rota. O encarregado
+  roda `python scripts/eliminar_envio.py <id>` e reinicia a API; o pedido chega por ele
   (LGPD art. 41) até o front ter a tela.
 
 Férias pelos envios:
@@ -219,7 +220,6 @@ ainda não manda `Authorization`, e as rotas respondem `401`.
 | Capacidade | Quem tem |
 |---|---|
 | `upload` | toda pessoa identificada |
-| `approve` | sênior, gestor e diretor |
 | `curate` | curadoria e diretoria; o front usa esta capacidade para mostrar a governança |
 | `sigiloso` | quem tem habilitação Sigilosa |
 

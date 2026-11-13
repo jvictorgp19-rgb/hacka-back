@@ -56,6 +56,7 @@ from sqlalchemy import (
     Table,
     Text,
     select,
+    update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as insert_postgres
@@ -470,6 +471,38 @@ def expurgar(agora: datetime | None = None) -> int:
     for envio in vencidos:
         _persistir(envio)
     return len(vencidos)
+
+
+EM_TRIAGEM = ("waiting", "processing")
+
+
+def eliminar_a_pedido(envio_id: str) -> str:
+    """Pedido do titular antes do prazo (LGPD art. 18, VI), atendido pelo encarregado (art. 41).
+
+    Devolve "eliminado", "em_triagem" ou "nao_encontrado". Ficam só os metadados sem dado pessoal
+    (hash, nível, setor, decisão). Fora da API (scripts/eliminar_envio.py), a mudança vai direto ao
+    banco; a API larga a cópia em memória ao reiniciar, porque restaurar() relê do banco.
+    """
+    motivo = "Dados pessoais eliminados a pedido do titular."
+    with _trava:
+        envio = _itens.get(envio_id)
+        if envio is not None:
+            if envio.status in EM_TRIAGEM:
+                return "em_triagem"
+            _eliminar_dados_pessoais(envio, motivo)
+            copia = replace(envio)
+    if envio is not None:
+        _persistir(copia)  # mesma fila das outras gravações deste envio: fica por último
+        return "eliminado"
+    with _engine().begin() as conexao:
+        status = conexao.execute(select(tabela.c.status).where(tabela.c.id == envio_id)).scalar()
+        if status is None:
+            return "nao_encontrado"
+        if status in EM_TRIAGEM:
+            return "em_triagem"
+        conexao.execute(update(tabela).where(tabela.c.id == envio_id).values(
+            fatos_ferias=None, nome_arquivo=EXPURGADO, resposta=None, mensagem=motivo))
+    return "eliminado"
 
 
 # ---------- ciclo de vida ----------

@@ -26,7 +26,8 @@ def test_sem_identificacao_e_visitante(client):
 def test_persona_do_demo_e_capacidades(client):
     eu = client.get("/identity", headers={"X-Persona-Id": "helena"}).json()
     assert eu["id"] == "helena" and eu["setor"] == "GEINOV"
-    assert {"upload", "approve", "curate", "sigiloso"} <= set(eu["capabilities"])
+    assert {"upload", "curate", "sigiloso"} <= set(eu["capabilities"])
+    assert "approve" not in eu["capabilities"]  # sem rota de decisão, ninguém aprova pela API
     junior = client.get("/identity", headers={"X-Persona-Id": "bruno"}).json()
     assert junior["capabilities"] == ["upload"]
 

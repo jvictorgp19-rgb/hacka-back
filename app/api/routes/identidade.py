@@ -24,9 +24,7 @@ def capacidades(sujeito: Sujeito) -> list[str]:
     p = sujeito.persona
     if p is None:
         return []
-    caps = ["upload"]
-    if p.aprova:
-        caps.append("approve")
+    caps = ["upload"]  # 'approve' volta com a rota de decisão dos envios
     if p.governanca:
         caps.append("curate")  # o front mostra a governança com 'curate'
     if sujeito.acesso.credenciado:

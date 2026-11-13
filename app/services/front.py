@@ -29,7 +29,7 @@ OCULTA = "Resposta oculta: uma das fontes não está mais disponível para o seu
 SEM_HISTORICO = ("Resposta calculada com os dados dos seus envios. Ela não fica guardada no "
                  "histórico (LGPD art. 6º, III): pergunte de novo para ver.")
 CALENDARIO_DE, CALENDARIO_ATE = date(2026, 1, 1), date(2028, 12, 31)
-# Pedido de acesso de exemplo, o mesmo do GET /access (app/services/access.py).
+# Pedido de acesso de exemplo: aparece na governança e vai para o espelho no banco.
 PEDIDOS_SEMENTE = [{
     "id": "REQ-2026-089", "persona": "ana", "owner": "GEPEC", "status": "pending",
     "reason": "Qual o detalhamento de auditoria da folha para ressarcimento de despesas em "

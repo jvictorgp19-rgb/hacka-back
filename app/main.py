@@ -55,7 +55,9 @@ app.add_middleware(OrigemConfiavel)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().origens_cors,
-    allow_credentials=True,  # o front manda credentials: include; origens são exatas
+    # O front chama com credentials: 'include' (src/services/http/client.ts). Sem este
+    # cabeçalho o navegador descarta a resposta. Não há cookie de sessão; as origens são exatas.
+    allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Persona-Id"],
 )
