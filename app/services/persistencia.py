@@ -9,7 +9,7 @@ Grava no banco tudo o que o sistema extrai e usa:
 - o conteúdo curado (seed do front), as personas e os pedidos de acesso;
 - cada execução da ingestão e a quarentena.
 
-O chat, a busca e o grafo da API continuam lendo dos arquivos: o banco é cópia, não a fonte.
+O chat e a busca da API continuam lendo dos arquivos: o banco é cópia, não a fonte.
 A cópia é refeita inteira, numa transação, só quando a assinatura do conteúdo muda.
 
 Toda linha com conteúdo do acervo leva a coluna `nivel`. Quem um dia ler estas tabelas para
