@@ -1,4 +1,4 @@
-"""Avaliação de exatidão do chat, para mostrar no pitch.
+"""Avaliação de exatidão do chat, pela rota que o front usa (POST /conversations/messages).
 
 Mede, sobre tests/eval/perguntas.yaml:
 - % de acerto            (a resposta contém o gabarito)
@@ -34,17 +34,19 @@ def avaliar() -> dict:
     with TestClient(app) as cliente:
         for caso in CASOS:
             zerar_taxas()
-            d = cliente.post("/chat", json={"message": caso["pergunta"], "tema": caso["tema"],
-                                            "perfil": "", "personaId": caso["persona"]}).json()
-            texto = (d["answer"] + " " + " ".join(d["bullets"])).lower()
+            contexto = {"conversationId": "eval", "tema": caso["tema"], "area": "",
+                        "perspective": "obligations", "from": "", "to": "",
+                        "persona": caso["persona"] or ""}
+            d = cliente.post("/conversations/messages",
+                             json={"query": caso["pergunta"], "context": contexto}).json()
+            texto = d["text"].lower()
             ok = all(trecho.lower() in texto for trecho in caso["contem"])
 
-            absteve = bool(d.get("honestAbstention"))
-            bloqueou = bool(d.get("rbacBlock"))
-            tipo_ok = {"resposta": not absteve and not bloqueou,
-                       "revogada": bool(d.get("revokedAlert")),
-                       "abstencao": absteve,
-                       "bloqueio": bloqueou}[caso["tipo"]]
+            status = d["status"]  # answered, abstained, conflict ou access_required
+            tipo_ok = {"resposta": status == "answered",
+                       "revogada": status == "conflict",
+                       "abstencao": status == "abstained",
+                       "bloqueio": status == "access_required"}[caso["tipo"]]
 
             acertos += ok and tipo_ok
             abstencoes += tipo_ok
@@ -55,7 +57,7 @@ def avaliar() -> dict:
             else:
                 citou = True
             if not (ok and tipo_ok and citou):
-                falhas.append((caso["pergunta"], d["answer"][:110]))
+                falhas.append((caso["pergunta"], f"[{status}] {d['text'][:110]}"))
     total = len(CASOS)
     return {"total": total, "acerto": acertos / total, "citacao": citacoes / com_citacao,
             "comportamento": abstencoes / total, "falhas": falhas}

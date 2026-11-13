@@ -50,9 +50,9 @@ from app.core.acl import maior_nivel
 from app.core.banco import criar_engine, url_configurada
 from app.core.config import get_settings
 from app.core.personas import PERSONAS
-from app.services import access
 from app.services.acervo import NOMES_DOMINIO, Acervo
 from app.services.calculators import alcadas, contrato, ferias
+from app.services.front import PEDIDOS_SEMENTE
 from app.services.grafo import CODIGO, Grafo
 from app.services.ingest import pipeline
 
@@ -338,9 +338,11 @@ def montar(acervo: Acervo, grafo: Grafo) -> dict[str, list[dict]]:
                  "nivel": p.nivel, "cura_dominios": list(p.cura_dominios),
                  "setor": p.setor, "senioridade": p.senioridade}
                 for p in PERSONAS.values()]
-    pedidos = [{"id": p.item.id, "solicitante_id": p.solicitante_id, "dominio": p.dominio,
-                "nivel_exigido": p.item.nivelExigido, "status": p.item.status,
-                "conteudo": p.item.model_dump()} for p in access._PEDIDOS]
+    # Pedido de exemplo de GET /access-requests (o dossiê da folha é sigiloso da GEPEC).
+    # Os pedidos criados no site ficam em registro_front (app/services/registros.py).
+    pedidos = [{"id": p["id"], "solicitante_id": p["persona"], "dominio": p["owner"],
+                "nivel_exigido": "Sigilosa", "status": p["status"], "conteudo": dict(p)}
+               for p in PEDIDOS_SEMENTE]
 
     return {"documentos": documentos, "trechos": trechos, "relacoes": grafo.relacoes(),
             "regras": regras, "curados": curados, "personas": personas, "pedidos": pedidos,

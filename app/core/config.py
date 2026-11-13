@@ -42,8 +42,7 @@ class Settings(BaseSettings):
     max_message_chars: int = 2000
     max_body_bytes: int = 16384
     rate_chat_per_min: int = 30
-    rate_reports_per_min: int = 3
-    rate_grafo_per_min: int = 30
+    rate_graficos_per_min: int = 30
 
     # Envio de arquivos (/document-jobs). O front manda um arquivo por requisição.
     max_upload_bytes: int = 20 * 1024 * 1024  # por arquivo, igual ao front

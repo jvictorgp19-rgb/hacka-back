@@ -97,7 +97,8 @@ def test_limite_de_corpo_vale_so_para_o_envio(client, monkeypatch):
     [grande] = _enviar(client, "ana", "norma.md", NORMA).json()  # 2,6 KB > 1000 bytes
     assert grande["status"] == "failed"
     assert _enviar(client, "ana", "x.md", "a" * 70_000).status_code == 413
-    r = client.post("/chat", json={"message": "a" * 20_000, "personaId": "ana"})
+    r = client.post("/conversations/messages",
+                    json={"query": "a" * 20_000, "context": {"persona": "ana"}})
     assert r.status_code == 413  # as outras rotas continuam com 16 KiB
 
 

@@ -69,8 +69,9 @@ def test_triagem_so_conta_envios_visiveis(client):
 
 
 def test_uso_so_para_governanca_e_sem_pessoa(client):
-    client.post("/chat", json={"message": "Quantos dias de férias com 3 faltas?",
-                               "personaId": "ana"})
+    client.post("/conversations/messages",
+                json={"query": "Quantos dias de férias com 3 faltas?",
+                      "context": {"persona": "ana"}})
     assert audit_log.esvaziar()  # a trilha grava em segundo plano
     assert _painel(client, "uso", "ana").status_code == 403
     assert _painel(client, "uso", None).status_code == 401

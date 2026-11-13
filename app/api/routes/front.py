@@ -151,7 +151,7 @@ def ask(body: Pergunta, request: Request, response: Response) -> dict:
     if copia is not None:
         try:
             front.guardar_conversa(sujeito, copia)
-        except SQLAlchemyError:  # a resposta vale mesmo sem histórico, como no POST /chat
+        except SQLAlchemyError:  # a resposta vale mesmo sem histórico
             log.error("Conversa não guardada: banco indisponível.")
     return resposta
 

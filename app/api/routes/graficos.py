@@ -23,7 +23,7 @@ def charts(request: Request, response: Response, sujeito: SujeitoDep,
            panel: Literal["acervo", "radar", "triagem", "uso"],
            hoje: HojeDep = None) -> list[Grafico]:
     sem_cache(response)
-    checar_taxa(request, sujeito.id, "graficos", get_settings().rate_grafo_per_min)
+    checar_taxa(request, sujeito.id, "graficos", get_settings().rate_graficos_per_min)
     if panel == "uso" and sujeito.persona is None:
         raise HTTPException(401, "Identifique-se para ver o painel de uso.")
     try:

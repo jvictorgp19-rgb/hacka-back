@@ -269,7 +269,7 @@ def _proximos_passos(chat: ChatResponse, status: str, fatos: list[dict]) -> list
 
 def perguntar(query: str, contexto: Contexto, sujeito: Sujeito,
               links: Links) -> tuple[dict, dict | None]:
-    """Roda o mesmo agente do POST /chat. Devolve (Answer do front, cópia para o histórico).
+    """Roda o agente do chat (agent/router.py). Devolve (Answer do front, cópia do histórico).
 
     A cópia é None para visitante. Ela guarda a pergunta mascarada, só o id dos fatos e as
     citações sem link: tudo é refeito na leitura, com o acesso e o endereço de quem lê. Resposta
