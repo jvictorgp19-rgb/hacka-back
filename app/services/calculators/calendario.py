@@ -72,12 +72,6 @@ def postergar_para_dia_util(d: date) -> date:
     return d if dia_util(d) else dia_util_seguinte(d)
 
 
-def somar_dias_uteis(d: date, n: int) -> date:
-    for _ in range(n):
-        d = dia_util_seguinte(d)
-    return d
-
-
 DIAS_SEMANA = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira",
                "sábado", "domingo"]
 

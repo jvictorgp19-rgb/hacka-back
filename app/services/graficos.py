@@ -21,7 +21,6 @@ from app.services.acervo import get_acervo
 from app.services.radar import montar_radar
 
 log = logging.getLogger(__name__)
-PAINEIS = ("acervo", "radar", "triagem", "uso")
 NADA_VISIVEL = "Nada visível para o seu perfil neste painel."
 ORDEM_CRITICIDADE = ["Crítica", "Alta", "Normal"]
 

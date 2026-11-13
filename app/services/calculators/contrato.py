@@ -49,14 +49,3 @@ def multa_rescisao(data_rescisao: date) -> Rescisao:
     return Rescisao(data_rescisao, dia, Decimal("0.00"),
                     f"{cal.br(data_rescisao)} é o {dia}º dia de vigência: a partir do 91º dia "
                     f"({cal.br(ULTIMO_DIA_COM_MULTA + timedelta(days=1))}) não há multa.")
-
-
-def glosa_internet(dias_com_queda: int) -> Decimal:
-    if dias_com_queda < 0 or dias_com_queda > 31:
-        raise ValueError("Informe de 0 a 31 dias.")
-    return GLOSA_DIARIA * dias_com_queda
-
-
-def pagamento_do_mes(ano: int, mes: int) -> date:
-    """Cláusula 10ª: até o dia 8 do mês de uso; se não for dia útil, dia útil seguinte."""
-    return cal.postergar_para_dia_util(date(ano, mes, 8))
