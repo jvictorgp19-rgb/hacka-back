@@ -5,7 +5,6 @@ docs/CONTRATO.md, seção "Telas do hacka-front".
 """
 
 import re
-import unicodedata
 import uuid
 from datetime import UTC, date, datetime
 
@@ -22,8 +21,13 @@ from app.services.calculators import alcadas, calendario, contrato, ferias
 from app.services.evidencias import Links
 from app.services.ingest_audit import auditar
 from app.services.radar import criticidade, eventos_visiveis
+from app.services.rag.index import normalizar
 
 _REVOGADA = re.compile(r"^(\S+) v(\d+\.\d+\.\d+)")
+ORIENTACAO = "Solicitar orientação"
+OCULTA = "Resposta oculta: uma das fontes não está mais disponível para o seu perfil."
+SEM_HISTORICO = ("Resposta calculada com os dados dos seus envios. Ela não fica guardada no "
+                 "histórico (LGPD art. 6º, III): pergunte de novo para ver.")
 CALENDARIO_DE, CALENDARIO_ATE = date(2026, 1, 1), date(2028, 12, 31)
 # Pedido de acesso de exemplo, o mesmo do GET /access (app/services/access.py).
 PEDIDOS_SEMENTE = [{
@@ -42,7 +46,11 @@ class SemPermissao(PermissionError):
     pass
 
 
-class Conflito(ValueError):
+class Conflito(Exception):
+    pass
+
+
+class Invalido(Exception):
     pass
 
 
@@ -50,19 +58,14 @@ def _agora() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _normal(texto: str) -> str:
-    sem_acento = unicodedata.normalize("NFD", texto.lower())
-    return " ".join("".join(c for c in sem_acento if unicodedata.category(c) != "Mn").split())
-
-
 # ---------- acervo ----------
 def _vigencia(meta: dict, cab: dict, vigente: bool) -> str:
-    if meta.get("vigencia_inicio"):
-        return f"{meta['vigencia_inicio']} a {meta.get('vigencia_fim') or 'consultar instrumento'}"
-    if cab.get("vigencia_inicio") or cab.get("vigencia_fim"):
-        def br(iso: str | None) -> str:
-            return calendario.br(date.fromisoformat(iso)) if iso else "consultar instrumento"
-        return f"{br(cab.get('vigencia_inicio'))} a {br(cab.get('vigencia_fim'))}"
+    """Datas ISO, no mesmo formato do catálogo do front (catalog.ts), venham do seed ou do
+    cabeçalho do PDF."""
+    for fonte in (meta, cab):
+        if fonte.get("vigencia_inicio") or fonte.get("vigencia_fim"):
+            inicio = fonte.get("vigencia_inicio") or "consultar instrumento"
+            return f"{inicio} a {fonte.get('vigencia_fim') or 'consultar instrumento'}"
     return "Consultar o documento" if vigente else "Versão anterior; consultar substituição"
 
 
@@ -105,7 +108,7 @@ def documentos(sujeito: Sujeito, links: Links) -> list[dict]:
         saida.append({
             "id": evidencias.documento_id(codigo, versao), "codigo": codigo,
             "titulo": m.get("titulo") or codigo, "versao": versao,
-            "fase": m.get("fase") or "Versão anterior", "vigente": bool(m.get("vigente")),
+            "fase": m.get("fase") or evidencias.VERSAO_ANTERIOR, "vigente": bool(m.get("vigente")),
             "tema": atual.tema, "area": atual.dominio, "camada": atual.tipo,
             "resumo": _resumo(m, "", m.get("titulo") or codigo), "fileUrl": None,
             "substitui": None, "vigencia": _vigencia(m, {}, bool(m.get("vigente")))})
@@ -130,7 +133,7 @@ def arquivo_do_documento(sujeito: Sujeito, doc_id: str):
 
 # ---------- prazos e achados ----------
 def _slug(texto: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", _normal(texto)).strip("-")[:48]
+    return re.sub(r"[^a-z0-9]+", "-", normalizar(texto)).strip("-")[:48]
 
 
 def prazos(sujeito: Sujeito, links: Links, hoje: date) -> list[dict]:
@@ -140,6 +143,7 @@ def prazos(sujeito: Sujeito, links: Links, hoje: date) -> list[dict]:
     acervo = get_acervo()
     curados = {(f["citation"]["codigo"], f.get("date")): f
                for f in evidencias.fatos(sujeito.acesso, links) if f.get("date")}
+    itens = evidencias.itens_visiveis(sujeito.acesso)
     saida = []
     for e in eventos_visiveis(acervo, sujeito, hoje):
         codigo = e.fontes[0]
@@ -148,7 +152,7 @@ def prazos(sujeito: Sujeito, links: Links, hoje: date) -> list[dict]:
         prazo_id = f"prazo-{_slug(e.titulo)}-{iso}"
         fato = curados.get((codigo, iso))
         if fato is None:
-            trecho = evidencias.trecho_do_item(codigo, e.item, sujeito.acesso)
+            trecho = itens.get((codigo, e.item))
             if trecho is None or doc is None:
                 continue
             fato = {"id": prazo_id, "title": e.titulo, "text": e.detalhe, "tema": doc.tema,
@@ -218,7 +222,9 @@ def _sem_markdown(texto: str) -> str:
 
 
 def _status(chat: ChatResponse) -> str:
-    if chat.rbacBlock:
+    """`access_required` só quando nada visível respondeu. Se o RAG respondeu com trechos que a
+    pessoa vê e ainda apontou um setor sigiloso, a resposta sai e o aviso vai junto."""
+    if chat.rbacBlock and not chat.citations:
         return "access_required"
     if chat.honestAbstention:
         return "abstained"
@@ -251,16 +257,24 @@ def _citacoes(chat: ChatResponse, fatos: list[dict], apoio: str, sujeito: Sujeit
 
 def _proximos_passos(chat: ChatResponse, status: str, fatos: list[dict]) -> list[str]:
     if status == "access_required":
-        passos = ["Solicitar orientação"]
+        passos = [ORIENTACAO]
     elif chat.honestAbstention:
-        passos = [chat.honestAbstention.botaoAcao or "Solicitar orientação"]
+        passos = [chat.honestAbstention.botaoAcao or ORIENTACAO]
     else:
         passos = ["Ver fontes", "Explorar análise"] if fatos else ["Ver fontes"]
+        if chat.rbacBlock:
+            passos.append(ORIENTACAO)
     return passos + [s for s in chat.suggestedFollowups[:2] if s not in passos]
 
 
-def perguntar(query: str, contexto: Contexto, sujeito: Sujeito, links: Links) -> dict:
-    """Roda o mesmo agente do POST /chat e devolve no formato Answer do front."""
+def perguntar(query: str, contexto: Contexto, sujeito: Sujeito,
+              links: Links) -> tuple[dict, dict | None]:
+    """Roda o mesmo agente do POST /chat. Devolve (Answer do front, cópia para o histórico).
+
+    A cópia é None para visitante. Ela guarda a pergunta mascarada, só o id dos fatos e as
+    citações sem link: tudo é refeito na leitura, com o acesso e o endereço de quem lê. Resposta
+    feita com os envios da pessoa não entra no histórico (dado pessoal; LGPD art. 6º, III).
+    """
     chat = responder(ChatRequest(message=query, tema=contexto.tema), sujeito)
     status = _status(chat)
     bullets = [_sem_markdown(b) for b in chat.bullets]
@@ -273,8 +287,10 @@ def perguntar(query: str, contexto: Contexto, sujeito: Sujeito, links: Links) ->
         codigos = [c.codigo for c in chat.citations]
         fatos = evidencias.relacionados(codigos, apoio, sujeito.acesso, links)
         citacoes = _citacoes(chat, fatos, apoio, sujeito, links)
-    if bullets and status != "access_required":
-        texto += "\n" + "\n".join(f"• {b}" for b in bullets)
+        if bullets:
+            texto += "\n" + "\n".join(f"• {b}" for b in bullets)
+        if chat.rbacBlock:
+            texto += "\n" + chat.rbacBlock.mensagem
     resposta = {
         "id": str(uuid.uuid4()), "query": guards.mascarar(query), "status": status,
         "text": texto, "facts": fatos, "citations": citacoes,
@@ -282,15 +298,40 @@ def perguntar(query: str, contexto: Contexto, sujeito: Sujeito, links: Links) ->
         "origin": "api", "createdAt": _agora(),
         "nextSteps": _proximos_passos(chat, status, fatos),
     }
-    if sujeito.persona is not None:
-        registros.salvar("conversa", sujeito.id, resposta["id"], resposta)
-    return resposta
+    if sujeito.persona is None:
+        return resposta, None
+    copia = {**resposta, "facts": [{"id": f["id"]} for f in fatos],
+             "citations": [{k: v for k, v in c.items() if k != "url"} for c in citacoes]}
+    if chat.dados_pessoais:
+        copia["text"] = SEM_HISTORICO
+    return resposta, copia
 
 
-def conversas(sujeito: Sujeito) -> list[dict]:
+def guardar_conversa(sujeito: Sujeito, copia: dict) -> None:
+    registros.salvar("conversa", sujeito.id, copia["id"], copia)
+
+
+def _reler(item: dict, sujeito: Sujeito, links: Links) -> dict:
+    """Refaz fatos e links com o acesso de agora. Fonte que deixou de ser visível oculta a
+    resposta inteira: o texto foi escrito a partir dela."""
+    acesso = sujeito.acesso
+    ids = list(dict.fromkeys(str(f.get("id", "")) for f in item.get("facts", [])))
+    fatos = evidencias.por_ids(ids, acesso, links)
+    citacoes = item.get("citations", [])
+    if len(fatos) < len(ids) or not all(
+            evidencias.pode_ver(acesso, c["codigo"], c["versao"]) for c in citacoes):
+        return {**item, "text": OCULTA, "facts": [], "citations": []}
+    return {**item, "facts": fatos,
+            "citations": [{**c, "url": links.arquivo(c["codigo"], c["versao"])}
+                          for c in citacoes]}
+
+
+def conversas(sujeito: Sujeito, links: Links) -> list[dict]:
+    """Da mais antiga à mais nova (ordem do front), já relidas com o acesso atual."""
     if sujeito.persona is None:
         return []
-    return registros.listar("conversa", persona=sujeito.id)
+    return [_reler(item, sujeito, links)
+            for item in registros.listar("conversa", persona=sujeito.id)]
 
 
 # ---------- pedidos de acesso ----------
@@ -325,7 +366,7 @@ def criar_pedido(sujeito: Sujeito, motivo: str, dono_informado: str | None) -> d
     """`owner` é a sigla BBTS do setor que decide (a mesma `area` de /documents)."""
     dono = (dono_informado or "").strip()
     if dono not in setores():
-        raise ValueError("Área responsável desconhecida: use a sigla BBTS do setor.")
+        raise Invalido("Área responsável desconhecida: use a sigla BBTS do setor.")
     item = {"id": str(uuid.uuid4()), "persona": sujeito.id, "reason": guards.mascarar(motivo),
             "owner": dono, "status": "pending", "response": "", "createdAt": _agora()}
     registros.salvar("pedido", sujeito.id, item["id"], item, dono=dono)
@@ -335,12 +376,12 @@ def criar_pedido(sujeito: Sujeito, motivo: str, dono_informado: str | None) -> d
 def decidir_pedido(sujeito: Sujeito, pedido_id: str, status: str, resposta: str) -> dict:
     """Registra a orientação. "granted" fica só registrado: a permissão real vem do cadastro
     de acesso, nunca deste pedido (LAI art. 25, par. 1º)."""
-    achado = registros.obter("pedido", pedido_id)
-    if achado:
-        _, dono, item = achado
-    else:
+    salvo = registros.obter("pedido", pedido_id)
+    if salvo:
+        dono, item, versao = salvo.dono, salvo.dados, salvo.versao
+    else:  # pedido de exemplo, ainda não gravado
         item = next((dict(s) for s in PEDIDOS_SEMENTE if s["id"] == pedido_id), None)
-        dono = item["owner"] if item else None
+        dono, versao = (item["owner"] if item else None), None
     p = sujeito.persona
     if item is None or p is None or not (p.id == item["persona"] or _decide(p, dono)):
         raise NaoEncontrado
@@ -350,16 +391,21 @@ def decidir_pedido(sujeito: Sujeito, pedido_id: str, status: str, resposta: str)
         raise Conflito("Pedido já decidido.")
     item = {**item, "status": status, "response": guards.mascarar(resposta),
             "decidedAt": _agora(), "decidedBy": p.nome}
-    registros.salvar("pedido", item["persona"], pedido_id, item, dono=dono)
+    # Compare-and-set: de duas decisões ao mesmo tempo, só uma grava; a outra recebe 409.
+    if not registros.trocar("pedido", item["persona"], pedido_id, item, dono, versao):
+        raise Conflito("Pedido já decidido.")
     return item
 
 
 # ---------- análises salvas e feedback ----------
 def _data_iso(texto: str) -> str:
+    """ISO em UTC. Sem fuso, vale como UTC: o resultado não depende do fuso do servidor."""
     try:
-        return datetime.fromisoformat(texto.replace("Z", "+00:00")).astimezone(UTC) \
-            .isoformat(timespec="seconds").replace("+00:00", "Z")
-    except ValueError:
+        data = datetime.fromisoformat(texto.replace("Z", "+00:00"))
+        if data.tzinfo is None:
+            data = data.replace(tzinfo=UTC)
+        return data.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    except (ValueError, OverflowError):
         return _agora()
 
 

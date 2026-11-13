@@ -5,16 +5,17 @@ JSON no formato do contrato. Gravação síncrona: o front espera a confirmaçã
 
 LGPD:
 - a pergunta do chat é guardada mascarada (CPF, e-mail, telefone etc.; guards.mascarar);
-- o registro vence em `RETENCAO_REGISTROS_DIAS` e é apagado (art. 15 e 16);
+- o registro vence em `RETENCAO_REGISTROS_DIAS`: some da leitura na hora e é apagado pela
+  retenção periódica (app/services/retencao.py; art. 15 e 16);
 - quem lê é só a própria persona; pedido de acesso também vai para quem decide pelo setor dono.
 
 Preparar no Neon, com o papel DONO:
     python -m app.services.registros raiz_app
 """
 
-import logging
 import threading
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 
@@ -29,6 +30,7 @@ from sqlalchemy import (
     delete,
     or_,
     select,
+    update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as insert_postgres
@@ -39,7 +41,6 @@ from app.core import banco
 from app.core.banco import criar_engine, url_configurada
 from app.core.config import get_settings
 
-log = logging.getLogger(__name__)
 TIPOS = ("conversa", "analise", "feedback", "pedido")
 LIMITE = 100
 
@@ -97,9 +98,17 @@ def salvar(tipo: str, persona: str, chave: str, dados: dict, dono: str | None = 
     return dados
 
 
+def _vencimento(agora: datetime | None = None) -> datetime:
+    return (agora or _agora()) - timedelta(days=get_settings().retencao_registros_dias)
+
+
 def listar(tipo: str, persona: str | None = None, donos: set[str] | None = None,
            limite: int = LIMITE) -> list[dict]:
-    """Mais recentes primeiro. `persona` e `donos` somam (OU): os meus e os do meu setor."""
+    """Os `limite` mais recentes, do mais antigo ao mais novo (ordem da conversa).
+
+    `persona` e `donos` somam (OU): os meus e os do meu setor. Vencido não sai, mesmo antes do
+    expurgo.
+    """
     filtros = []
     if persona is not None:
         filtros.append(tabela.c.persona == persona)
@@ -107,40 +116,62 @@ def listar(tipo: str, persona: str | None = None, donos: set[str] | None = None,
         filtros.append(tabela.c.dono.in_(sorted(donos)))
     if not filtros:
         return []
-    consulta = (select(tabela.c.dados).where(tabela.c.tipo == tipo, or_(*filtros))
+    consulta = (select(tabela.c.dados)
+                .where(tabela.c.tipo == tipo, or_(*filtros),
+                       tabela.c.atualizado_em >= _vencimento())
                 .order_by(tabela.c.criado_em.desc()).limit(limite))
     with _engine().connect() as conexao:
-        return [linha.dados for linha in conexao.execute(consulta)]
+        return [linha.dados for linha in conexao.execute(consulta)][::-1]
 
 
-def obter(tipo: str, chave: str) -> tuple[str, str | None, dict] | None:
-    """(persona, dono, dados) do registro com essa chave, ou None."""
-    consulta = select(tabela.c.persona, tabela.c.dono, tabela.c.dados).where(
-        tabela.c.tipo == tipo, tabela.c.chave == chave).limit(1)
+@dataclass(frozen=True)
+class Salvo:
+    persona: str
+    dono: str | None
+    dados: dict
+    versao: datetime  # atualizado_em: trava otimista em `trocar`
+
+
+def obter(tipo: str, chave: str) -> Salvo | None:
+    """O registro com essa chave, ou None (vencido conta como inexistente)."""
+    consulta = select(tabela.c.persona, tabela.c.dono, tabela.c.dados,
+                      tabela.c.atualizado_em).where(
+        tabela.c.tipo == tipo, tabela.c.chave == chave,
+        tabela.c.atualizado_em >= _vencimento()).limit(1)
     with _engine().connect() as conexao:
         linha = conexao.execute(consulta).first()
-    return (linha.persona, linha.dono, linha.dados) if linha else None
+    return Salvo(linha.persona, linha.dono, linha.dados, linha.atualizado_em) if linha else None
+
+
+def trocar(tipo: str, persona: str, chave: str, dados: dict, dono: str | None,
+           versao: datetime | None) -> bool:
+    """Grava só se ninguém gravou antes (compare-and-set). False: outra gravação venceu.
+
+    `versao` None: o registro ainda não existe e é criado agora. Senão, é o `atualizado_em` lido.
+    """
+    engine = _engine()
+    agora = _agora()
+    if versao is None:
+        inserir = insert_postgres if engine.dialect.name == "postgresql" else insert_sqlite
+        comando = inserir(tabela).values(
+            id=uuid.uuid4().hex, tipo=tipo, persona=persona, chave=chave, dono=dono,
+            criado_em=agora, atualizado_em=agora, dados=dados,
+        ).on_conflict_do_nothing(index_elements=["tipo", "persona", "chave"])
+    else:
+        comando = (update(tabela)
+                   .where(tabela.c.tipo == tipo, tabela.c.persona == persona,
+                          tabela.c.chave == chave, tabela.c.atualizado_em == versao)
+                   .values(dados=dados, dono=dono, atualizado_em=agora))
+    # RETURNING em vez de rowcount: o psycopg devolve -1 no INSERT ... ON CONFLICT DO NOTHING.
+    with engine.begin() as conexao:
+        return conexao.execute(comando.returning(tabela.c.id)).first() is not None
 
 
 def expurgar(agora: datetime | None = None) -> int:
     """Apaga o que passou do prazo de retenção."""
-    limite = (agora or _agora()) - timedelta(days=get_settings().retencao_registros_dias)
     with _engine().begin() as conexao:
-        return conexao.execute(delete(tabela).where(tabela.c.atualizado_em < limite)).rowcount
-
-
-def expurgar_em_segundo_plano() -> threading.Thread:
-    def tarefa() -> None:
-        try:
-            n = expurgar()
-            if n:
-                log.info("Registros do site apagados pela retenção: %d.", n)
-        except Exception as erro:  # noqa: BLE001 - a mensagem do driver pode trazer host
-            log.error("Falha na retenção dos registros do site: %s", type(erro).__name__)
-
-    thread = threading.Thread(target=tarefa, name="registros-retencao", daemon=True)
-    thread.start()
-    return thread
+        return conexao.execute(
+            delete(tabela).where(tabela.c.atualizado_em < _vencimento(agora))).rowcount
 
 
 def limpar() -> None:

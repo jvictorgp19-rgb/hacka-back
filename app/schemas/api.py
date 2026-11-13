@@ -4,7 +4,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 Nivel = Literal["Pública", "Interna", "Restrita", "Sigilosa"]
 Tema = Literal["ferias", "inovacao", "locacao"]
@@ -65,6 +65,17 @@ class ChatResponse(BaseModel):
     honestAbstention: HonestAbstention | None = None
     rbacBlock: RbacBlock | None = None
     suggestedFollowups: list[str]
+    # Interno, fora do JSON: a resposta usa dados pessoais dos envios da própria pessoa. Quem
+    # guarda histórico não guarda esse texto (LGPD art. 6º, III, e art. 16).
+    _dados_pessoais: bool = PrivateAttr(default=False)
+
+    @property
+    def dados_pessoais(self) -> bool:
+        return self._dados_pessoais
+
+    def com_dados_pessoais(self, valor: bool) -> "ChatResponse":
+        self._dados_pessoais = valor
+        return self
 
 
 # ---------- /docs ----------

@@ -78,19 +78,36 @@ recusa `null`.
   (NT_2026-021) e contrato (CTR_2026-012). O contrato do front junta tudo numa resposta só. Se o
   sujeito não vê alguma das fontes, a rota responde `403` e não devolve nada parcial
   (LAI art. 25, § 1º).
-- **Conversa.** Usa o mesmo motor do `/chat`. `status`: `access_required` quando há `rbacBlock`,
-  `abstained` na abstenção ou sem citação, `conflict` quando há `revokedAlert`, `answered` nos
-  demais casos. A pergunta fica guardada **mascarada** (CPF, e-mail, telefone etc.).
+- **Conversa.** Usa o mesmo motor do `/chat`. `tema: "todos"` (valor do contrato) busca sem
+  viés de tema. `status`:
+  - `access_required`: há `rbacBlock` e nada visível respondeu;
+  - `abstained`: abstenção, ou resposta sem citação;
+  - `conflict`: há `revokedAlert`;
+  - `answered`: os demais casos. Se a resposta veio de trechos visíveis e o back também apontou
+    um setor sigiloso, ela sai com o aviso no fim do texto e "Solicitar orientação" nos
+    `nextSteps`.
+- **Histórico da conversa.** Sai da mais antiga para a mais nova (as 100 mais recentes). Guarda
+  a pergunta **mascarada** (CPF, e-mail, telefone etc.), só o id dos fatos e as citações sem
+  link. Na leitura, fatos e links são refeitos com o acesso e o endereço atuais. Se uma fonte
+  deixou de ser visível, a resposta inteira sai oculta. Resposta calculada com os envios da
+  própria pessoa não guarda o texto no histórico (dado pessoal; LGPD art. 6º, III).
 - **Pedidos de acesso.** `owner` precisa ser um setor BBTS. Decide quem cura o setor dono ou é
   diretor da diretoria dele. `granted` só registra a decisão: **não muda a permissão real**, que
-  continua no cadastro (`app/core/personas.py`) e no manifesto.
+  continua no cadastro (`app/core/personas.py`) e no manifesto. De duas decisões ao mesmo tempo,
+  só uma grava; a outra recebe `409`. A auditoria guarda o id do pedido.
 - **Análises salvas.** Do corpo só se aproveita o `id` de cada fato. O conteúdo vem do servidor e
   é refeito na leitura, com a ACL do momento.
 - **Persona.** Nas rotas com `persona` no corpo ou na query, a ordem de resolução é a da seção
   "Identidade". No modo `token`, uma persona diferente da do token dá `403`.
-- **Retenção.** Conversas, análises, feedback e pedidos ficam na tabela `registro_front` e são
-  apagados após `RETENCAO_REGISTROS_DIAS` (padrão 180) sem atualização (LGPD art. 15 e 16).
+- **Retenção.** Conversas, análises, feedback e pedidos ficam na tabela `registro_front`. Depois
+  de `RETENCAO_REGISTROS_DIAS` (padrão 180) sem atualização, o registro some da leitura na hora.
+  A retenção periódica apaga esses registros e elimina os dados pessoais dos envios vencidos
+  (LGPD art. 15 e 16). Ela roda no startup e a cada `RETENCAO_INTERVALO_H` horas (padrão 6).
   Cada persona só lê os próprios registros. Pedido de acesso também aparece para quem decide.
+- **Links.** `fileUrl` e `citation.url` usam `API_PUBLIC_URL`. Sem ela, usam o endereço da
+  própria requisição. Em produção, defina `API_PUBLIC_URL`.
+- **Erros.** Banco fora do ar dá `503` com mensagem fixa nas rotas que gravam ou leem registros.
+  A conversa responde mesmo assim, mas não entra no histórico.
 
 `ChatResponse`:
 

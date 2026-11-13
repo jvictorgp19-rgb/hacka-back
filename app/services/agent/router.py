@@ -47,6 +47,7 @@ SISTEMA = (
     "5. Não faça contas de datas ou valores. Não invente regras. Não inclua links.\n"
     "6. Responda em português, em até 4 frases curtas e diretas."
 )
+TODOS = "todos"
 SUGESTOES = {
     "ferias": ["Quero sair de férias em 05/05/2027. Até quando peço?",
                "Em uma equipe de 9, quantos podem sair de férias juntos?",
@@ -132,7 +133,8 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
     cfg = get_settings()
     acervo, indice = get_acervo(), get_indice()
     nivel, acesso = sujeito.nivel, sujeito.acesso
-    tema = req.tema if req.tema in SUGESTOES else "ferias"
+    # "todos" (contrato do hacka-front): sem viés de tema. Outro valor desconhecido: férias.
+    tema = req.tema if req.tema in SUGESTOES else "" if req.tema == TODOS else "ferias"
     p = extrair(req.message, hoje)
 
     answer, bullets, fontes = "", [], []
@@ -256,4 +258,4 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
                             latencyMs=latencia, sigiloNivel=sigilo),
         revokedAlert=revogada, honestAbstention=abstencao, rbacBlock=bloqueio,
         suggestedFollowups=list(dict.fromkeys(sugestoes))[:4],
-    )
+    ).com_dados_pessoais(intent == ferias_envios.INTENT)

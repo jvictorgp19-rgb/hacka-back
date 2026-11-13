@@ -13,7 +13,7 @@ from app.api.routes import identidade as rotas_identidade
 from app.api.routes.contrato import router
 from app.core.config import get_settings
 from app.core.limites import LimiteDeCorpo, OrigemConfiavel
-from app.services import audit_log, envios, persistencia, registros
+from app.services import audit_log, envios, persistencia, retencao
 from app.services.acervo import get_acervo
 from app.services.agent.router import get_indice
 from app.services.grafo import get_grafo
@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
     banco = audit_log.preparar()  # DATABASE_URL insegura impede o startup
     persistencia.sincronizar_em_segundo_plano(acervo, grafo)  # espelho no banco
     envios.restaurar_em_segundo_plano()  # envios e aprovações sobrevivem ao restart
-    registros.expurgar_em_segundo_plano()  # retenção das conversas e pedidos
+    retencao.iniciar()  # LGPD: apaga envios e registros vencidos, agora e a cada N horas
     for item in acervo.quarentena:
         log.warning("Documento em quarentena: %s (%s)", item["documento"], item["motivo"])
     log.info("Acervo: %d documentos, %d trechos. LLM %s. AUTH_MODE=%s. Auditoria: %s.",
@@ -43,6 +43,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        retencao.encerrar()
         envios.encerrar()
         audit_log.encerrar()
 

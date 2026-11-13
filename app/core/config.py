@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     retencao_envios_dias: int = 180
     # Conversas, análises salvas, feedback e pedidos de acesso do site (app/services/registros.py).
     retencao_registros_dias: int = 180
+    retencao_intervalo_h: int = 6  # intervalo da retenção periódica (app/services/retencao.py)
     rate_registros_per_min: int = 60  # pedidos, análises e feedback do site
     # URL pública da API, para os links de PDF (/documents/{id}/file). Vazio: a do próprio pedido.
     api_public_url: str = ""

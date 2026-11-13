@@ -57,11 +57,3 @@ NT_2026-018, CTR_2026-012 e as versões substituídas) ficam abertos para quem s
 
 No modo API, o back serve os PDFs por `GET /documents/{id}/file`, com ACL. Sugestão: tirar os
 sigilosos de `public/` e usar só o `fileUrl` da API.
-
-## 6. Conversa com `tema: 'todos'`
-
-O contexto padrão manda `tema: 'todos'`. O motor do chat só conhece `ferias`, `inovacao` e
-`locacao`; com outro valor, ele usa férias (`router.py`, `responder`). As calculadoras e o
-reforço da busca passam a favorecer férias, e uma pergunta sobre contrato pode cair em férias.
-
-Sugestão: mandar o tema da tela quando houver um, ou deixar a pessoa escolher.

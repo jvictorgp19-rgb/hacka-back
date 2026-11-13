@@ -243,3 +243,128 @@ def test_retencao_apaga_registros_antigos(client):
     depois = datetime.now(UTC) + timedelta(days=get_settings().retencao_registros_dias + 1)
     assert registros.expurgar(depois) == 1
     assert client.get("/conversations/messages?persona=ana").json() == []
+
+
+# ---------- achados do /code-review ----------
+def test_tema_todos_nao_puxa_para_ferias(client):
+    """'todos' é valor do contrato (contextSchema): sem viés de tema."""
+    r = _perguntar(client, "A Tese de Inovação é publicada até 31/01/2027?", "bruno")
+    assert "NG_1130" in {c["codigo"] for c in r["citations"]}
+    assert "Portal Raiz" not in r["text"]
+
+
+def test_resposta_com_envios_nao_fica_no_historico(client):
+    from app.services.front import SEM_HISTORICO
+
+    vivo = _perguntar(client, "Quantos dias de férias eu tenho?")
+    assert vivo["text"] != SEM_HISTORICO
+    [guardado] = client.get("/conversations/messages?persona=ana").json()
+    assert guardado["id"] == vivo["id"] and guardado["text"] == SEM_HISTORICO
+
+
+def test_historico_relido_com_link_e_acesso_atuais(client):
+    vivo = client.post("/conversations/messages", headers={"Host": "evil.example"},
+                       json={"query": "Quero férias a partir de 05/05/2027. Até quando peço?",
+                             "context": CTX}).json()
+    assert any(c.get("url", "").startswith("http://evil.example") for c in vivo["citations"])
+    [lido] = client.get("/conversations/messages?persona=ana").json()
+    urls = [c["url"] for c in lido["citations"] if "url" in c]
+    assert urls and all(u.startswith("http://testserver/") for u in urls)
+    assert "evil.example" not in json.dumps(registros.listar("conversa", persona="ana"))
+    # Fonte que a pessoa não vê mais (ou nunca viu): a resposta inteira fica oculta.
+    citacao = {"id": "x", "documentId": "CTR_2026-012@1.0.0", "codigo": "CTR_2026-012",
+               "titulo": "t", "versao": "1.0.0", "status": "Vigente", "item": "i",
+               "trecho": "Multa de R$ 3.650,00"}
+    registros.salvar("conversa", "ana", "velha", {**lido, "id": "velha",
+                                                  "createdAt": "2026-11-13T00:00:00Z",
+                                                  "citations": [citacao]})
+    velha = next(m for m in client.get("/conversations/messages?persona=ana").json()
+                 if m["id"] == "velha")
+    assert velha["citations"] == [] and "3.650" not in json.dumps(velha)
+
+
+def test_historico_em_ordem_cronologica(client):
+    primeira = _perguntar(client, "Equipe de 9, quantos podem sair juntos?")
+    segunda = _perguntar(client, "Quantos dias de férias com 3 faltas?")
+    ids = [m["id"] for m in client.get("/conversations/messages?persona=ana").json()]
+    assert ids == [primeira["id"], segunda["id"]]
+
+
+def test_conversa_responde_mesmo_sem_banco(client, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    def cai(*_args, **_kwargs):
+        raise OperationalError("x", {}, Exception("host secreto"))
+
+    monkeypatch.setattr(registros, "salvar", cai)
+    assert _perguntar(client, "Equipe de 9, quantos podem sair juntos?")["status"] == "answered"
+    monkeypatch.setattr(registros, "listar", cai)
+    r = client.get("/feedback?persona=ana")
+    assert r.status_code == 503 and "host secreto" not in r.text
+
+
+def test_decisao_concorrente_so_uma_grava(client):
+    """Compare-and-set: a segunda gravação com a mesma versão lida perde."""
+    item = {"id": "p1", "status": "pending"}
+    assert registros.trocar("pedido", "ana", "p1", item, "GESUC", None)
+    assert not registros.trocar("pedido", "ana", "p1", item, "GESUC", None)
+    lido = registros.obter("pedido", "p1")
+    assert registros.trocar("pedido", "ana", "p1", {**item, "status": "denied"}, "GESUC",
+                            lido.versao)
+    assert not registros.trocar("pedido", "ana", "p1", {**item, "status": "granted"}, "GESUC",
+                                lido.versao)
+    assert registros.obter("pedido", "p1").dados["status"] == "denied"
+
+
+def test_vencido_some_da_leitura_antes_do_expurgo(client, monkeypatch):
+    _perguntar(client, "Equipe de 9, quantos podem sair juntos?")
+    monkeypatch.setattr(get_settings(), "retencao_registros_dias", -1)
+    assert client.get("/conversations/messages?persona=ana").json() == []
+
+
+def test_retencao_periodica_roda_envios_e_registros(client, monkeypatch):
+    from app.services import retencao
+
+    chamados = []
+    monkeypatch.setattr(retencao, "TAREFAS", (("a", lambda: chamados.append("a") or 0),
+                                              ("b", lambda: 1 / 0),
+                                              ("c", lambda: chamados.append("c") or 1)))
+    retencao.rodar_uma_vez()  # uma falha não impede as outras
+    assert chamados == ["a", "c"]
+
+
+def test_data_da_analise_em_utc(client):
+    base = {"id": "r2", "title": "A", "kind": "analysis", "persona": "ana", "facts": [],
+            "context": CTX}
+    r = client.post("/analyses", json={**base, "createdAt": "0001-01-01T00:00:00+05:00"})
+    assert r.status_code == 200 and r.json()["createdAt"].startswith(str(datetime.now(UTC).year))
+    r = client.post("/analyses", json={**base, "createdAt": "2026-11-12T10:00:00"})
+    assert r.json()["createdAt"] == "2026-11-12T10:00:00Z"  # sem fuso: UTC
+
+
+def test_resposta_visivel_com_aviso_de_sigilo_nao_vira_bloqueio():
+    from app.schemas.api import ChatResponse, CostBadge, RbacBlock
+    from app.services.front import ORIENTACAO, _proximos_passos, _status
+
+    bloqueio = RbacBlock(dominioResponsavel="GESUC", nivelExigido="Sigilosa", mensagem="m")
+    custo = CostBadge(type="deterministic", label="", latencyMs=1, sigiloNivel="Interna")
+    citacao = {"codigo": "NG_111", "titulo": "Férias", "versao": "v3.0.0", "status": "Vigente"}
+    parcial = ChatResponse(answer="a", bullets=[], citations=[citacao], costBadge=custo,
+                           rbacBlock=bloqueio, suggestedFollowups=[])
+    assert _status(parcial) == "answered"
+    assert ORIENTACAO in _proximos_passos(parcial, "answered", [])
+    assert _status(parcial.model_copy(update={"citations": []})) == "access_required"
+
+
+def test_citacao_de_versao_antiga_nao_herda_a_vigente():
+    from app.services.evidencias import Links, citacao
+
+    antiga = citacao(Links("http://x"), "RG_1100", "1.0.0", "4.2", "trecho")
+    assert antiga["status"] != "Vigente" and "url" not in {k for k, v in antiga.items() if v}
+
+
+def test_vigencia_sempre_iso(client):
+    import re
+
+    docs = client.get("/documents", headers=H("curadora_ggc")).json()
+    assert docs and not any(re.search(r"\d{2}/\d{2}/\d{4}", d["vigencia"]) for d in docs)
