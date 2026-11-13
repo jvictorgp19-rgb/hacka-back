@@ -219,6 +219,35 @@ A avaliação mede acerto, citação correta e abstenção/bloqueio corretos.
 - Ingestão manual: `python -m app.services.ingest.pipeline`.
 - Reclassificou um documento? Reinicie a API: acervo, índice e grafo ficam em memória.
 
+### Triagem de arquivo novo
+
+`python scripts/triar.py <arquivo-ou-pasta>` lê PDF, DOCX, XLSX, CSV, texto e código-fonte.
+Para cada arquivo, ele diz:
+
+- se é **Interna** ou **Sigilosa**, com o motivo;
+- qual é o setor dono;
+- quais setores teriam acesso, seguindo [docs/CLASSIFICACAO_BBTS.md](docs/CLASSIFICACAO_BBTS.md).
+
+Com `--ficha PASTA`, grava para a IA o JSON com o texto por página. A ficha contém o conteúdo do
+arquivo: guarde-a com o mesmo sigilo dele.
+
+O que a triagem detecta:
+
+- dados pessoais: CPF validado, matrícula, RG, nome preenchido;
+- dado sensível de saúde (LGPD art. 11);
+- dado bancário (LC 105);
+- credencial;
+- código-fonte, que fica só com a GEINOV;
+- valores comerciais;
+- versão substituída.
+
+O valor encontrado nunca vai para a saída: ela mostra só o tipo de dado e as páginas.
+
+A triagem é só uma sugestão. Quem confirma é o aprovador do setor (LAI art. 27). Arquivo
+hostil é recusado: assinatura falsa, PDF criptografado e bomba de ZIP. A leitura roda em
+processo separado, com tempo limite. Sobre o acervo do desafio, a triagem reproduz a
+classificação BBTS nos 13 PDFs (`tests/test_triagem.py`).
+
 ## Estrutura
 
 ```
@@ -234,10 +263,11 @@ app/
    ├─ llm/              # cliente OpenAI-compatible
    ├─ agent/            # intenções, guardas e roteador de custo do chat
    ├─ calculators/      # férias, alçadas, contrato, calendário de dias úteis
+   ├─ triagem/          # arquivo enviado -> texto -> sigilo + setor dono (sugestão)
    ├─ grafo.py          # mapa do acervo
    └─ radar, reports, access, ingest_audit, audit_log
 acervo/bronze/          # PDFs
-scripts/                # gerador do manifesto
+scripts/                # gerador do manifesto e triagem pela linha de comando
 tests/                  # pytest + tests/eval (banco de perguntas)
 docs/                   # contrato, plano, metodologia e revisões de segurança
 ```
