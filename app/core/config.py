@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     auth_token_ttl_min: int = 30
     demo_default_persona: str = ""
 
+    # "openai" = servidor compatível com a API da OpenAI; "bedrock" = Amazon Bedrock (Converse).
+    llm_provider: Literal["openai", "bedrock"] = "openai"
+    llm_aws_region: str = ""  # só no bedrock; vazio = região padrão do ambiente (AWS_REGION)
     llm_base_url: str = ""
     llm_api_key: str = Field(default="", repr=False)
     llm_model: str = ""

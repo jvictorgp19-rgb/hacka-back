@@ -108,6 +108,20 @@ LLM_MODEL=<nome do modelo>
 Sem essas variáveis, o chat responde com calculadoras e trechos citados (modo extrativo). HTTP
 sem TLS só é aceito para `localhost` (túnel SSH), salvo `LLM_ALLOW_HTTP=true`.
 
+### LLM no Amazon Bedrock
+Com `LLM_PROVIDER=bedrock` o back chama o modelo pela Converse API. Não há chave no `.env`: a
+autenticação vem da role da instância (ou de qualquer credencial AWS do ambiente), que precisa de
+`bedrock:InvokeModel` no modelo escolhido.
+```
+LLM_PROVIDER=bedrock
+LLM_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+LLM_AWS_REGION=us-east-1
+```
+Use o id de um perfil de inferência (prefixo `us.` ou `global.`) quando o modelo não aceita
+invocação direta. O fluxo de segurança é o mesmo do provedor OpenAI: o modelo recebe só trechos
+numerados que o sujeito pode ver, e a resposta sem citação válida é descartada. Qualquer falha do
+Bedrock (credencial, cota, tempo) cai no modo extrativo.
+
 ## Banco (Neon)
 
 O banco é o [Neon](https://neon.tech), que é PostgreSQL. Ele guarda duas coisas:

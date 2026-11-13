@@ -5,8 +5,10 @@ import pytest
 
 # Banco de auditoria isolado e sem LLM: os testes não dependem de rede nem de .env local.
 os.environ["DATABASE_URL"] = f"sqlite:///{tempfile.mkdtemp()}/teste.db"
-for _var in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "DEMO_DEFAULT_PERSONA"):
+for _var in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "LLM_AWS_REGION",
+             "DEMO_DEFAULT_PERSONA", "API_PUBLIC_URL"):
     os.environ[_var] = ""
+os.environ["LLM_PROVIDER"] = "openai"  # um .env com bedrock não pode ligar o LLM real nos testes
 os.environ["AUTH_MODE"] = "demo"
 os.environ["TRIAGEM_ISOLAR"] = "false"  # o processo isolado tem teste próprio (test_triagem)
 
