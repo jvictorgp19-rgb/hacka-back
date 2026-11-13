@@ -15,7 +15,6 @@ PERGUNTA = "Quantos dias de férias eu tenho?"
 @pytest.fixture(autouse=True)
 def _limpo(client):
     envios.limpar()
-    client.cookies.clear()
     yield
     envios.esperar()
 
@@ -71,19 +70,13 @@ def test_chat_calcula_os_dias_pelo_formulario_enviado(client, perguntar):
     assert {c["codigo"] for c in r["citations"]} >= {"TB_1111-001", "NG_111"}
 
 
-def test_dados_de_ferias_so_para_a_pessoa_aprovador_e_gepec(client):
+def test_dados_de_ferias_so_para_a_pessoa_e_a_aprovadora(client):
     item = _enviar(client, "bruno", "minhas_ferias.txt", FORM.encode())
     ver = lambda p: client.get(f"/document-jobs/{item['id']}",  # noqa: E731
                                headers={"X-Persona-Id": p})
     assert ver("curadora_ggc").json()["ferias"]["diasDeFerias"] == 24  # aprovadora (GEPEC)
     assert ver("helena").status_code == 404  # tech lead do júnior: dado pessoal não é do GEINOV
     assert ver("fernanda").status_code == 404
-    r = client.post(f"/document-jobs/{item['id']}/decision",
-                    json={"status": "approved", "nivel": "Interna", "setores": ["GEPEC"]},
-                    headers={"X-Persona-Id": "curadora_ggc"})
-    assert r.status_code == 200
-    assert ver("marina").status_code == 200 and ver("marina").json()["ferias"] is None
-    assert ver("curadora_ggc").json()["ferias"] is not None  # GEPEC habilitada
 
 
 def test_formulario_de_outro_empregado_nao_entra_no_calculo(client, perguntar):

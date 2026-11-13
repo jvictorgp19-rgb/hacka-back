@@ -49,9 +49,10 @@ def limite_do_corpo(metodo: str, caminho: str) -> int:
 class OrigemConfiavel:
     """Middleware ASGI contra CSRF.
 
-    O front manda cookie (credentials: include). Um POST de outro site levaria esse cookie. Por
-    isso, requisição que altera estado e traz Origin só passa se a origem estiver em
-    CORS_ORIGINS. Cliente fora do navegador (curl, testes) não manda Origin e segue normal.
+    Em AUTH_MODE=demo, um POST sem persona vira DEMO_DEFAULT_PERSONA: um site qualquer
+    agiria em nome dela. Por isso, requisição que altera estado e traz Origin só passa se a
+    origem estiver em CORS_ORIGINS. Cliente fora do navegador (curl, testes) não manda Origin
+    e segue normal.
     """
 
     METODOS = {"POST", "PUT", "PATCH", "DELETE"}

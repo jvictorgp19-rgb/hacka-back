@@ -1,4 +1,4 @@
-"""Envio de arquivos (/document-jobs): contrato do front, triagem, aprovação por setor e banco."""
+"""Envio de arquivos (/document-jobs): contrato do front, triagem, quem vê o pendente e banco."""
 
 import pytest
 from sqlalchemy import select
@@ -43,12 +43,6 @@ def _triado(client, persona: str, nome: str, conteudo: str | bytes) -> dict:
 def _ver(client, persona: str | None, envio_id: str):
     headers = {"X-Persona-Id": persona} if persona else {}
     return client.get(f"/document-jobs/{envio_id}", headers=headers)
-
-
-def _decidir(client, persona: str, envio_id: str, **corpo):
-    return client.post(f"/document-jobs/{envio_id}/decision",
-                       json={"status": "approved", "response": "", **corpo},
-                       headers={"X-Persona-Id": persona})
 
 
 # ---------- contrato ----------
@@ -108,58 +102,26 @@ def test_origem_de_outro_site_e_recusada(client):
     assert _enviar(client, "ana", "norma.md", NORMA, origem="null").status_code == 403
     ok = _enviar(client, "ana", "norma.md", NORMA, origem="http://localhost:3000")
     assert ok.status_code == 200
+    mesma = _enviar(client, "ana", "norma.md", NORMA, origem="http://testserver")  # o Swagger
+    assert mesma.status_code == 200
 
 
 # ---------- aprovação ----------
-def test_codigo_do_junior_espera_o_tech_lead_e_financeiro_nao_ve(client):
+def test_codigo_do_junior_fica_pendente_e_financeiro_nao_ve(client):
     item = _triado(client, "bruno", "servico.py", CODIGO)
     assert item["classificacao"]["nivel"] == "Sigilosa"
     assert item["classificacao"]["setores"] == ["GEINOV"]
     assert item["aprovacao"] == "pendente" and "GEINOV" in item["aprovadores"]
-    assert not item["podeDecidir"]  # quem enviou não aprova
-
+    assert _ver(client, "helena", item["id"]).status_code == 200  # tech lead: aprovador
     assert _ver(client, "fernanda", item["id"]).status_code == 404  # financeiro não vê código
     assert _ver(client, None, item["id"]).status_code == 404
-    r = _decidir(client, "bruno", item["id"])
-    assert r.status_code == 403 and "próprio" in r.json()["detail"]
-
-    pendentes = client.get("/document-jobs?aprovacao=pendente",
-                           headers={"X-Persona-Id": "helena"}).json()
-    assert [p["id"] for p in pendentes] == [item["id"]] and pendentes[0]["podeDecidir"]
-    r = _decidir(client, "helena", item["id"], response="Revisado.")
-    assert r.status_code == 200, r.text
-    aprovado = r.json()
-    assert aprovado["aprovacao"] == "aprovado" and aprovado["decidedBy"] == "helena"
-    assert aprovado["nivelFinal"] == "Sigilosa" and aprovado["setoresFinais"] == ["GEINOV"]
-    assert _decidir(client, "helena", item["id"]).status_code == 403  # já decidido
-    assert _ver(client, "fernanda", item["id"]).status_code == 404  # continua fora do GFI
 
 
-def test_junior_com_conteudo_interno_so_aparece_depois_da_aprovacao(client):
+def test_junior_com_conteudo_interno_nao_vai_para_o_setor_sem_aprovacao(client):
     item = _triado(client, "bruno", "guia.md", NORMA)
     assert item["classificacao"]["nivel"] == "Interna" and item["aprovacao"] == "pendente"
     assert _ver(client, "marina", item["id"]).status_code == 404
-    assert _decidir(client, "marina", item["id"]).status_code == 404  # nem sabe que existe
-    assert _decidir(client, "helena", item["id"]).status_code == 200
-    assert _ver(client, "marina", item["id"]).status_code == 200
-
-
-def test_aprovador_corrige_nivel_e_setores(client):
-    item = _triado(client, "bruno", "guia.md", NORMA)
-    r = _decidir(client, "helena", item["id"], nivel="Sigilosa", setores=["GEINOV", "XYZ"])
-    assert r.status_code == 422
-    r = _decidir(client, "helena", item["id"], nivel="Sigilosa", setores=["GEINOV", "DIRTEC"])
-    assert r.json()["setoresFinais"] == ["GEINOV", "DIRTEC"]
-    assert _ver(client, "marina", item["id"]).status_code == 404
-
-
-def test_recusa(client):
-    item = _triado(client, "bruno", "servico.py", CODIGO)
-    r = client.post(f"/document-jobs/{item['id']}/decision",
-                    json={"status": "rejected", "response": "Falta revisão de código."},
-                    headers={"X-Persona-Id": "helena"})
-    assert r.json()["aprovacao"] == "recusado" and "Falta revisão" in r.json()["message"]
-    assert _ver(client, "bruno", item["id"]).status_code == 200
+    assert _ver(client, "helena", item["id"]).status_code == 200
 
 
 def test_formulario_preenchido_vai_para_a_gepec_aprovar(client):
@@ -168,45 +130,12 @@ def test_formulario_preenchido_vai_para_a_gepec_aprovar(client):
     assert item["departamento"]["sigla"] == "GEPEC" and item["aprovacao"] == "pendente"
     # Gestor de quem enviou, sem habilitação Sigilosa nem necessidade de conhecer: não vê.
     assert _ver(client, "carlos", item["id"]).status_code == 404
-    assert _ver(client, "curadora_ggc", item["id"]).json()["podeDecidir"]  # setor dono
-    assert _ver(client, "diretora_diraf", item["id"]).json()["podeDecidir"]  # diretoria da GEPEC
+    assert _ver(client, "curadora_ggc", item["id"]).status_code == 200  # setor dono
+    assert _ver(client, "diretora_diraf", item["id"]).status_code == 200  # diretoria da GEPEC
     assert _ver(client, "helena", item["id"]).status_code == 404
 
 
-def test_aprovador_nao_guarda_acesso_depois_da_decisao(client):
-    item = _triado(client, "bruno", "guia.md", NORMA)  # Interna de júnior: o GEINOV aprova
-    r = _decidir(client, "helena", item["id"], nivel="Sigilosa", setores=["GFI"])
-    assert r.status_code == 200
-    assert _ver(client, "helena", item["id"]).status_code == 404  # fora da lista confirmada
-    assert _ver(client, "fernanda", item["id"]).status_code == 200
-    assert _ver(client, "bruno", item["id"]).status_code == 200  # quem enviou sempre vê
-
-
-def test_recusado_fica_com_quem_enviou_e_quem_decidiu(client):
-    item = _triado(client, "bruno", "guia.md", NORMA)
-    _decidir(client, "helena", item["id"], status="rejected")
-    assert _ver(client, "helena", item["id"]).status_code == 200
-    assert _ver(client, "curadora_ggc", item["id"]).status_code == 404
-
-
-# ---------- retenção e eliminação (LGPD) ----------
-def test_quem_enviou_pede_a_eliminacao(client):
-    item = _triado(client, "bruno", "minhas_ferias.txt",
-                   FORM.replace("Joana Pereira da Silva", "Bruno Lima"))
-    assert item["ferias"]["faltasInjustificadas"] == 8
-    url = f"/document-jobs/{item['id']}/forget"
-    assert client.post(url, headers={"X-Persona-Id": "curadora_ggc"}).status_code == 404
-    r = client.post(url, headers={"X-Persona-Id": "bruno"})
-    assert r.status_code == 200, r.text
-    assert r.json()["name"] == envios.EXPURGADO and r.json()["ferias"] is None
-    assert r.json()["classificacao"]["nivel"] == "Sigilosa"  # a classificação fica
-    envios.esperar()
-    with envios._engine().connect() as c:
-        linha = c.execute(select(envios.tabela).where(envios.tabela.c.id == item["id"])
-                          ).mappings().one()
-    assert linha["fatos_ferias"] is None and linha["nome_arquivo"] == envios.EXPURGADO
-
-
+# ---------- retenção (LGPD) ----------
 def test_prazo_de_retencao_elimina_os_dados_pessoais(client):
     from datetime import UTC, datetime, timedelta
 
@@ -250,7 +179,7 @@ def test_restaurar_traz_os_envios_de_volta(client):
     assert _ver(client, "bruno", item["id"]).status_code == 404
     assert envios.restaurar() >= 1
     volta = _ver(client, "helena", item["id"]).json()
-    assert volta["aprovacao"] == "pendente" and volta["podeDecidir"]
+    assert volta["aprovacao"] == "pendente"
 
 
 def test_id_invalido_e_404(client):

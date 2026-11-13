@@ -7,9 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from app.core.auth import Sujeito
-from app.schemas.api import RadarEvent
 from app.services.acervo import Acervo
-from app.services.calculators import calendario as cal
 from app.services.calculators import contrato as ctr
 
 
@@ -98,13 +96,3 @@ def eventos_visiveis(acervo: Acervo, sujeito: Sujeito, hoje: date) -> list[_Even
                    if e.data >= hoje and acervo.autorizado(e.fontes, sujeito.acesso)),
                   key=lambda e: e.data)
 
-
-def montar_radar(acervo: Acervo, sujeito: Sujeito, hoje: date) -> list[RadarEvent]:
-    saida = []
-    for i, e in enumerate(eventos_visiveis(acervo, sujeito, hoje), 1):
-        dias = (e.data - hoje).days
-        saida.append(RadarEvent(
-            id=f"rad-{i}", dataLimite=cal.br(e.data), titulo=e.titulo, documento=e.documento,
-            responsavel=e.responsavel, criticidade=criticidade(dias),
-            detalhe=f"{e.detalhe} Faltam {dias} dias."))
-    return saida

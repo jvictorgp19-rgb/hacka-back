@@ -1,4 +1,4 @@
-"""Tipos internos do motor do chat e das rotas de envio, identidade e gráficos.
+"""Tipos internos do motor do chat e das rotas de envio, identidade e auditoria.
 
 O formato que o hacka-front consome está em app/schemas/front.py (espelho dos schemas zod).
 Os campos ficam em camelCase porque várias rotas os devolvem como estão.
@@ -78,17 +78,6 @@ class ChatResponse(BaseModel):
         return self
 
 
-# ---------- radar de prazos (painel de gráficos) ----------
-class RadarEvent(BaseModel):
-    id: str
-    dataLimite: str
-    titulo: str
-    documento: str
-    responsavel: str
-    criticidade: Literal["Crítica", "Alta", "Normal"]
-    detalhe: str
-
-
 # ---------- auditoria do acervo (GET /audit/findings) ----------
 class IngestAuditFinding(BaseModel):
     id: str
@@ -154,19 +143,10 @@ class UploadItem(BaseModel):
     aprovadores: str | None = None
     nivelFinal: Literal["Interna", "Sigilosa"] | None = None
     setoresFinais: list[str]
-    podeDecidir: bool
     decidedBy: str | None = None
     decidedAt: str | None = None
     response: str | None = None
     ferias: FatosFerias | None = None  # só para quem enviou, os aprovadores e a GEPEC
-
-
-class UploadDecision(_Entrada):
-    status: Literal["approved", "rejected"]
-    response: str = Field(default="", max_length=500)
-    persona: str | None = Field(default=None, max_length=40)
-    nivel: Literal["Interna", "Sigilosa"] | None = None
-    setores: list[str] | None = Field(default=None, max_length=10)
 
 
 # ---------- /identity (hacka-front: identitySchema) ----------
@@ -183,28 +163,3 @@ class Identity(BaseModel):
     senioridade: str | None = None
     habilitacao: Nivel
 
-
-class IdentityLogin(_Entrada):
-    persona: str | None = Field(default=None, max_length=40)  # AUTH_MODE=demo
-    token: str | None = Field(default=None, max_length=300)  # AUTH_MODE=token
-
-
-# ---------- /analyses/charts (gráficos: o back agrega, o front desenha) ----------
-class Ponto(BaseModel):
-    x: str
-    y: float
-
-
-class Serie(BaseModel):
-    nome: str
-    pontos: list[Ponto]
-
-
-class Grafico(BaseModel):
-    id: str
-    titulo: str
-    tipo: Literal["barra", "barra_empilhada", "pizza", "linha", "heatmap"]
-    eixoX: str
-    eixoY: str
-    series: list[Serie]
-    nota: str | None = None

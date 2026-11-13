@@ -17,8 +17,7 @@ CTX = {"conversationId": "c1", "tema": "todos", "area": "", "perspective": "obli
        "from": "", "to": ""}
 
 
-def test_health_e_swagger(client):
-    assert client.get("/health").json() == {"status": "ok"}
+def test_swagger(client):
     assert client.get("/swagger").status_code == 200
 
 
@@ -27,6 +26,16 @@ def test_rotas_do_contrato_antigo_nao_existem(client):
     for metodo, rota in (("post", "/chat"), ("get", "/docs"), ("get", "/radar"),
                          ("get", "/access"), ("get", "/ingest"), ("post", "/reports"),
                          ("get", "/reports/pptx"), ("get", "/grafo")):
+        assert getattr(client, metodo)(rota, headers=P["ana"]).status_code in (404, 405), rota
+
+
+def test_rotas_que_o_front_nao_chama_nao_existem(client):
+    """O hacka-front (Homolog, src/services/http/client.ts) não chama estas rotas."""
+    envio = "0" * 32
+    for metodo, rota in (("get", "/health"), ("get", "/analyses/charts?panel=acervo"),
+                         ("post", "/identity"), ("post", "/identity/sair"),
+                         ("get", "/document-jobs"), ("post", f"/document-jobs/{envio}/decision"),
+                         ("post", f"/document-jobs/{envio}/forget")):
         assert getattr(client, metodo)(rota, headers=P["ana"]).status_code in (404, 405), rota
 
 

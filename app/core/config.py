@@ -24,11 +24,6 @@ class Settings(BaseSettings):
     auth_token_secret: str = Field(default="", repr=False)
     auth_token_ttl_min: int = 30
     demo_default_persona: str = ""
-    # Cookie de identidade (POST /identity). Em produção: COOKIE_SECURE=true (só HTTPS).
-    # Front e API em domínios diferentes exigem COOKIE_SAMESITE=none (e COOKIE_SECURE=true).
-    cookie_secure: bool = False
-    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
-    cookie_max_age_min: int = 480
 
     llm_base_url: str = ""
     llm_api_key: str = Field(default="", repr=False)
@@ -42,7 +37,6 @@ class Settings(BaseSettings):
     max_message_chars: int = 2000
     max_body_bytes: int = 16384
     rate_chat_per_min: int = 30
-    rate_graficos_per_min: int = 30
 
     # Envio de arquivos (/document-jobs). O front manda um arquivo por requisição.
     max_upload_bytes: int = 20 * 1024 * 1024  # por arquivo, igual ao front

@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import envios as rotas_envios
 from app.api.routes import front as rotas_front
-from app.api.routes import graficos as rotas_graficos
 from app.api.routes import identidade as rotas_identidade
 from app.core.config import get_settings
 from app.core.limites import LimiteDeCorpo, OrigemConfiavel
@@ -62,10 +61,4 @@ app.add_middleware(
 )
 app.include_router(rotas_envios.router)
 app.include_router(rotas_identidade.router)
-app.include_router(rotas_graficos.router)
 app.include_router(rotas_front.router)
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}

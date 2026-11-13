@@ -5,18 +5,17 @@ A triagem roda em segundo plano: o POST responde `processing` e o GET traz o res
 Regras de quem vê e de quem aprova: app/services/envios.py.
 """
 
-from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from app.api.deps import SujeitoDep, sem_cache
-from app.core.auth import Sujeito, resolver_sujeito
+from app.core.auth import Sujeito
 from app.core.config import get_settings
 from app.core.limites import checar_taxa
 from app.core.setores import rotulo
-from app.schemas.api import UploadDecision, UploadItem
+from app.schemas.api import UploadItem
 from app.services import envios
 from app.services.calculators.ferias import dias_por_faltas
 from app.services.triagem.extracao import ArquivoRecusado, detectar_formato
@@ -55,7 +54,6 @@ def _item(envio: envios.Envio, sujeito: Sujeito) -> UploadItem:
         revisaoHumana=envio.revisao_humana, aprovacao=envio.aprovacao,
         aprovadores=envios.quem_aprova(envio) if envio.aprovacao == "pendente" else None,
         nivelFinal=envio.nivel_final, setoresFinais=envio.setores_finais,
-        podeDecidir=envios.pode_decidir(sujeito.persona, envio),
         decidedBy=envio.decidido_por, decidedAt=_iso(envio.decidido_em),
         response=envio.resposta, ferias=_ferias(envio, sujeito))
 
@@ -102,21 +100,6 @@ async def enviar(request: Request, response: Response, sujeito: SujeitoDep) -> l
     return [_item(e, sujeito) for e in itens]
 
 
-@router.get("/document-jobs", response_model=list[UploadItem])
-def listar(sujeito: SujeitoDep, response: Response,
-           aprovacao: Annotated[str | None, Query(pattern="^(pendente|aprovado|recusado|"
-                                                          "dispensado)$")] = None,
-           ) -> list[UploadItem]:
-    """Envios que o sujeito vê: os dele, os que ele aprova e os já liberados para o setor."""
-    sem_cache(response)
-    if sujeito.persona is None:
-        raise HTTPException(401, "Identifique-se para ver os envios.")
-    vistos = [e for e in envios.listar()
-              if envios.pode_ver(sujeito.persona, sujeito.acesso, e)
-              and (aprovacao is None or e.aprovacao == aprovacao)]
-    return [_item(e, sujeito) for e in vistos[:100]]
-
-
 @router.get("/document-jobs/{envio_id}", response_model=UploadItem)
 def status(envio_id: str, sujeito: SujeitoDep, response: Response) -> UploadItem:
     sem_cache(response)
@@ -126,38 +109,3 @@ def status(envio_id: str, sujeito: SujeitoDep, response: Response) -> UploadItem
         raise HTTPException(404, NAO_ENCONTRADO)
     return _item(envio, sujeito)
 
-
-@router.post("/document-jobs/{envio_id}/decision", response_model=UploadItem)
-def decidir(envio_id: str, body: UploadDecision, request: Request,
-            response: Response) -> UploadItem:
-    """Aprovador confirma (ou corrige) o nível e os setores, ou recusa o envio."""
-    sem_cache(response)
-    sujeito = resolver_sujeito(request, body.persona)
-    envio = envios.obter(envio_id)
-    if envio is None or not envios.pode_ver(sujeito.persona, sujeito.acesso, envio):
-        raise HTTPException(404, NAO_ENCONTRADO)
-    if not envios.pode_decidir(sujeito.persona, envio):
-        motivo = ("Quem enviou não aprova o próprio envio."
-                  if sujeito.id == envio.enviado_por else
-                  "Envio não está aguardando a sua aprovação.")
-        raise HTTPException(403, motivo)
-    try:
-        decidido = envios.decidir(envio_id, sujeito.persona, body.status == "approved",
-                                  body.response, body.nivel, body.setores)
-    except envios.DecisaoInvalida as erro:
-        raise HTTPException(422, str(erro)) from None
-    return _item(decidido, sujeito)
-
-
-@router.post("/document-jobs/{envio_id}/forget", response_model=UploadItem)
-def esquecer(envio_id: str, sujeito: SujeitoDep, response: Response) -> UploadItem:
-    """Quem enviou pede a eliminação dos dados pessoais do envio (LGPD art. 18, VI): nome do
-    arquivo, resposta do aprovador e fatos de férias. Fica a classificação, sem dado pessoal."""
-    sem_cache(response)
-    envio = envios.obter(envio_id)
-    if envio is None or sujeito.persona is None or envio.enviado_por != sujeito.id:
-        raise HTTPException(404, NAO_ENCONTRADO)
-    try:
-        return _item(envios.esquecer(envio_id, sujeito.persona), sujeito)
-    except envios.DecisaoInvalida as erro:
-        raise HTTPException(409, str(erro)) from None
