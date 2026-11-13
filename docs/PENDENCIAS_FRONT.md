@@ -72,5 +72,5 @@ Voltam quando a tela existir.
 
 - **PDFs sigilosos em `public/docs_acervo/`.** O modo demo apontava para PDFs servidos pelo Next
   sem controle de acesso, inclusive os sigilosos (LGPD art. 46; LAI art. 25). Saíram do front com
-  o código da Lana e o modo demo (branch `chore/remove-codigo-lana`, PR para `Homolog`). Os PDFs
+  o código da Lana e o modo demo (branch `chore/remove-codigo-lana`, [PR #3](https://github.com/jvictorgp19-rgb/hacka-front/pull/3) para `Homolog`). Os PDFs
   agora só saem por `GET /documents/{id}/file`, com ACL.

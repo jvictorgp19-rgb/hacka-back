@@ -269,7 +269,7 @@ Pedido do usuário: remover o back e o front da Lana, deixar só o back alinhado
 
 ## Mudança no front ligada a este PR
 
-No hacka-front, a branch `chore/remove-codigo-lana` (PR para `Homolog`) remove o código da Lana
+No hacka-front, a branch `chore/remove-codigo-lana` ([PR #3](https://github.com/jvictorgp19-rgb/hacka-front/pull/3), para `Homolog`) remove o código da Lana
 (simuladores, `MermaidFlowchart`, o JSON do acervo e os PDFs de `public/docs_acervo/`) e o modo
 demo. O front passa a usar só a API. Os PDFs sigilosos deixam de ser servidos pelo Next sem
 controle de acesso (LGPD art. 46; LAI art. 25).
