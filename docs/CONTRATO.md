@@ -22,6 +22,7 @@ Os formatos abaixo espelham os tipos TypeScript do `hacka-front`, branch `lana`
 | `GET /document-jobs/{id}` | — | `UploadItem` (404 se o sujeito não pode ver) |
 | `GET /document-jobs?aprovacao=` | `pendente`, `aprovado`, `recusado` ou `dispensado` (opcional) | `UploadItem[]` que o sujeito vê |
 | `POST /document-jobs/{id}/decision` | `{status: approved\|rejected, response, persona, nivel?, setores?}` | `UploadItem` |
+| `GET /analyses/charts?panel=&hoje=` | `panel`: `acervo`, `radar`, `triagem` ou `uso` | `Grafico[]` |
 | `GET /health` | — | `{"status": "ok"}` |
 
 `ChatResponse`:
@@ -114,6 +115,36 @@ O limite de 16 KiB do corpo vale para todas as outras rotas.
 
 `POST` vindo de navegador com `Origin` fora de `CORS_ORIGINS` recebe `403` (proteção contra CSRF,
 porque o front manda `credentials: include`).
+
+## Gráficos (`/analyses/charts`)
+
+O back agrega os dados com pandas e devolve séries prontas; o front escolhe a biblioteca de
+gráfico.
+
+```json
+{"id": "acervo-tema", "titulo": "Documentos por tema", "tipo": "barra",
+ "eixoX": "Tema", "eixoY": "Documentos",
+ "series": [{"nome": "Documentos", "pontos": [{"x": "ferias", "y": 5}]}],
+ "nota": null}
+```
+
+Valores de `tipo`: `barra`, `barra_empilhada`, `pizza`, `linha` e `heatmap`. No `heatmap`, cada
+série é uma linha da grade. Quando não há dado visível, `nota` explica o motivo.
+
+| Painel | Gráficos | Quem vê |
+|---|---|---|
+| `acervo` | por tema, por setor dono, vigentes x substituídas, classificação x tema | qualquer perfil; conta só os documentos que ele vê |
+| `radar` | prazos por criticidade, prazos por mês (`hoje` simula a data) | qualquer perfil; conta só os prazos que ele vê |
+| `triagem` | classificação sugerida, setor dono, classificação x setor, tipos de dado sigiloso, situação da aprovação | conta só os envios que o perfil vê |
+| `uso` | eventos por dia, permitido/bloqueado/abstenção, intenções, nível | só governança (`curate`): `401` para anônimo, `403` para os demais |
+
+As contagens nunca incluem o que o perfil não vê. Uma barra "Sigilosa: 2" já revelaria que
+esses documentos existem.
+
+O painel `uso` lê a view `auditoria_resumo`. A view agrega por dia, ação, resultado, intent e
+nível, e não tem a coluna `sujeito`: não há gráfico por pessoa (LGPD art. 6º, III). O papel da
+aplicação tem `SELECT` só na view, não na tabela `auditoria`. Para criar a view, rode uma vez
+com o papel dono: `python -m app.services.audit_log`.
 
 ## Identidade: como o back sabe quem pergunta
 

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import envios as rotas_envios
+from app.api.routes import graficos as rotas_graficos
 from app.api.routes import identidade as rotas_identidade
 from app.api.routes.contrato import router
 from app.core.config import get_settings
@@ -60,6 +61,7 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(rotas_envios.router)
 app.include_router(rotas_identidade.router)
+app.include_router(rotas_graficos.router)
 
 
 @app.get("/health")

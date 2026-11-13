@@ -248,3 +248,24 @@ class Identity(BaseModel):
 class IdentityLogin(_Entrada):
     persona: str | None = Field(default=None, max_length=40)  # AUTH_MODE=demo
     token: str | None = Field(default=None, max_length=300)  # AUTH_MODE=token
+
+
+# ---------- /analyses/charts (gráficos: o back agrega, o front desenha) ----------
+class Ponto(BaseModel):
+    x: str
+    y: float
+
+
+class Serie(BaseModel):
+    nome: str
+    pontos: list[Ponto]
+
+
+class Grafico(BaseModel):
+    id: str
+    titulo: str
+    tipo: Literal["barra", "barra_empilhada", "pizza", "linha", "heatmap"]
+    eixoX: str
+    eixoY: str
+    series: list[Serie]
+    nota: str | None = None

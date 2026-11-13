@@ -50,6 +50,7 @@ curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
 | `GET /grafo?tema=` | Mapa do acervo: documentos, versões e relações no nível de quem consulta |
 | `GET /identity` · `POST /identity` | Quem é o usuário do front; grava a persona (ou o token) em cookie HttpOnly |
 | `POST /document-jobs` · `GET /document-jobs[/{id}]` | Envio de arquivo: triagem (sigilo + setor dono) em segundo plano |
+| `GET /analyses/charts?panel=` | Gráficos (acervo, radar, triagem, uso) agregados com pandas; o front desenha |
 | `POST /document-jobs/{id}/decision` | Aprovador do setor confirma, corrige ou recusa a classificação |
 
 Formatos, identidade, limites e ajustes pedidos ao front: [docs/CONTRATO.md](docs/CONTRATO.md).
