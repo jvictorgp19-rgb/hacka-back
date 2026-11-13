@@ -24,7 +24,6 @@ CHAVES_RESPOSTA = {"id", "query", "status", "text", "facts", "citations", "conte
 @pytest.fixture(autouse=True)
 def _limpo(client):
     registros.limpar()
-    client.cookies.clear()
 
 
 def H(persona: str) -> dict:  # noqa: N802

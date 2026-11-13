@@ -20,8 +20,13 @@ TABELA = ("0 a 5 faltas: 30 dias · 6 a 14: 24 dias · 15 a 23: 18 dias · 24 a 
 
 
 def casa(p: Parametros) -> bool:
-    """Pergunta sobre os próprios dias de férias, sem informar as faltas."""
+    """Pergunta sobre os próprios dias de férias, sem informar as faltas.
+
+    Pergunta de prazo ("quantos dias de antecedência", "quantos dias antes") é regra da NG_111,
+    não saldo de quem pergunta.
+    """
     return (p.faltas is None and p.tem("ferias")
+            and not p.tem("antecedencia", "dias antes", "dia antes")
             and p.tem("quantos dias", "quantos dia", "tenho direito", "meu direito", "meu saldo",
                       "minhas ferias", "eu tenho", "eu teria", "teria de ferias"))
 

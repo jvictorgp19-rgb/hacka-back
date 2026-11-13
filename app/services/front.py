@@ -29,7 +29,7 @@ OCULTA = "Resposta oculta: uma das fontes não está mais disponível para o seu
 SEM_HISTORICO = ("Resposta calculada com os dados dos seus envios. Ela não fica guardada no "
                  "histórico (LGPD art. 6º, III): pergunte de novo para ver.")
 CALENDARIO_DE, CALENDARIO_ATE = date(2026, 1, 1), date(2028, 12, 31)
-# Pedido de acesso de exemplo, o mesmo do GET /access (app/services/access.py).
+# Pedido de acesso de exemplo: aparece na governança e vai para o espelho no banco.
 PEDIDOS_SEMENTE = [{
     "id": "REQ-2026-089", "persona": "ana", "owner": "GEPEC", "status": "pending",
     "reason": "Qual o detalhamento de auditoria da folha para ressarcimento de despesas em "
@@ -269,7 +269,7 @@ def _proximos_passos(chat: ChatResponse, status: str, fatos: list[dict]) -> list
 
 def perguntar(query: str, contexto: Contexto, sujeito: Sujeito,
               links: Links) -> tuple[dict, dict | None]:
-    """Roda o mesmo agente do POST /chat. Devolve (Answer do front, cópia para o histórico).
+    """Roda o agente do chat (agent/router.py). Devolve (Answer do front, cópia do histórico).
 
     A cópia é None para visitante. Ela guarda a pergunta mascarada, só o id dos fatos e as
     citações sem link: tudo é refeito na leitura, com o acesso e o endereço de quem lê. Resposta

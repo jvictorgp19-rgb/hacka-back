@@ -5,14 +5,16 @@ A triagem roda em segundo plano: o POST responde `processing` e o GET traz o res
 Regras de quem vê e de quem aprova: app/services/envios.py.
 """
 
-from typing import Annotated
+
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.datastructures import UploadFile
 
 from app.api.deps import SujeitoDep, sem_cache
-from app.core.auth import Sujeito, resolver_sujeito
+from app.core.auth import Sujeito
 from app.core.config import get_settings
 from app.core.limites import checar_taxa
 from app.core.setores import rotulo
@@ -23,6 +25,7 @@ from app.services.triagem.extracao import ArquivoRecusado, detectar_formato
 
 router = APIRouter()
 NAO_ENCONTRADO = "Envio não encontrado."
+BANCO_INDISPONIVEL = "Não foi possível confirmar os dados no banco. Tente novamente."
 
 
 def _iso(momento) -> str | None:
@@ -55,9 +58,12 @@ def _item(envio: envios.Envio, sujeito: Sujeito) -> UploadItem:
         revisaoHumana=envio.revisao_humana, aprovacao=envio.aprovacao,
         aprovadores=envios.quem_aprova(envio) if envio.aprovacao == "pendente" else None,
         nivelFinal=envio.nivel_final, setoresFinais=envio.setores_finais,
-        podeDecidir=envios.pode_decidir(sujeito.persona, envio),
         decidedBy=envio.decidido_por, decidedAt=_iso(envio.decidido_em),
-        response=envio.resposta, ferias=_ferias(envio, sujeito))
+        response=envio.resposta, ferias=_ferias(envio, sujeito),
+        fileAvailable=envio.arquivo_disponivel,
+        canApprove=(triado and envio.aprovacao == "pendente"
+                    and envio.nome_arquivo != envios.EXPURGADO
+                    and envios.e_aprovador(sujeito.persona, envio)))
 
 
 def _receber(arquivo: UploadFile, sujeito: Sujeito) -> envios.Envio:
@@ -97,6 +103,8 @@ async def enviar(request: Request, response: Response, sujeito: SujeitoDep) -> l
         if not arquivos:
             raise HTTPException(422, "Nenhum arquivo no campo 'files'.")
         itens = [await run_in_threadpool(_receber, a, sujeito) for a in arquivos]
+    except (SQLAlchemyError, envios.PersistenciaIndisponivel):
+        raise HTTPException(503, BANCO_INDISPONIVEL) from None
     finally:
         await form.close()
     return [_item(e, sujeito) for e in itens]
@@ -104,60 +112,67 @@ async def enviar(request: Request, response: Response, sujeito: SujeitoDep) -> l
 
 @router.get("/document-jobs", response_model=list[UploadItem])
 def listar(sujeito: SujeitoDep, response: Response,
-           aprovacao: Annotated[str | None, Query(pattern="^(pendente|aprovado|recusado|"
-                                                          "dispensado)$")] = None,
-           ) -> list[UploadItem]:
-    """Envios que o sujeito vê: os dele, os que ele aprova e os já liberados para o setor."""
+           limit: int = Query(default=100, ge=1, le=500),
+           offset: int = Query(default=0, ge=0)) -> list[UploadItem]:
     sem_cache(response)
     if sujeito.persona is None:
-        raise HTTPException(401, "Identifique-se para ver os envios.")
-    vistos = [e for e in envios.listar()
-              if envios.pode_ver(sujeito.persona, sujeito.acesso, e)
-              and (aprovacao is None or e.aprovacao == aprovacao)]
-    return [_item(e, sujeito) for e in vistos[:100]]
+        raise HTTPException(401, "Identifique-se para consultar seus arquivos.")
+    try:
+        visiveis = [e for e in envios.listar()
+                    if envios.pode_ver(sujeito.persona, sujeito.acesso, e)]
+    except SQLAlchemyError:
+        raise HTTPException(503, BANCO_INDISPONIVEL) from None
+    return [_item(e, sujeito) for e in visiveis[offset:offset + limit]]
+
+
+def _visivel(envio_id: str, sujeito: Sujeito) -> envios.Envio:
+    try:
+        envio = envios.obter(envio_id)
+    except SQLAlchemyError:
+        raise HTTPException(503, BANCO_INDISPONIVEL) from None
+    # Sem permissão é 404, não 403: não confirma que o envio existe.
+    if envio is None or not envios.pode_ver(sujeito.persona, sujeito.acesso, envio):
+        raise HTTPException(404, NAO_ENCONTRADO)
+    return envio
 
 
 @router.get("/document-jobs/{envio_id}", response_model=UploadItem)
 def status(envio_id: str, sujeito: SujeitoDep, response: Response) -> UploadItem:
     sem_cache(response)
-    envio = envios.obter(envio_id)
-    # Sem permissão é 404, não 403: não confirma que o envio existe.
-    if envio is None or not envios.pode_ver(sujeito.persona, sujeito.acesso, envio):
+    return _item(_visivel(envio_id, sujeito), sujeito)
+
+
+@router.get("/document-jobs/{envio_id}/file")
+def baixar(envio_id: str, sujeito: SujeitoDep) -> Response:
+    envio = _visivel(envio_id, sujeito)
+    # O original pode conter dados pessoais que não saem na resposta resumida da triagem.
+    if envio.fatos_ferias and not envios.ve_dados_pessoais(sujeito.persona, sujeito.acesso, envio):
         raise HTTPException(404, NAO_ENCONTRADO)
-    return _item(envio, sujeito)
+    try:
+        original = envios.conteudo(envio)
+    except SQLAlchemyError:
+        raise HTTPException(503, BANCO_INDISPONIVEL) from None
+    if original is None:
+        raise HTTPException(404, "Original indisponível para este envio.")
+    return Response(original, media_type="application/octet-stream", headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(envio.nome_arquivo)}"})
 
 
 @router.post("/document-jobs/{envio_id}/decision", response_model=UploadItem)
-def decidir(envio_id: str, body: UploadDecision, request: Request,
+def decidir(envio_id: str, body: UploadDecision, sujeito: SujeitoDep,
             response: Response) -> UploadItem:
-    """Aprovador confirma (ou corrige) o nível e os setores, ou recusa o envio."""
     sem_cache(response)
-    sujeito = resolver_sujeito(request, body.persona)
-    envio = envios.obter(envio_id)
-    if envio is None or not envios.pode_ver(sujeito.persona, sujeito.acesso, envio):
-        raise HTTPException(404, NAO_ENCONTRADO)
-    if not envios.pode_decidir(sujeito.persona, envio):
-        motivo = ("Quem enviou não aprova o próprio envio."
-                  if sujeito.id == envio.enviado_por else
-                  "Envio não está aguardando a sua aprovação.")
-        raise HTTPException(403, motivo)
+    envio = _visivel(envio_id, sujeito)
+    if envio.nome_arquivo == envios.EXPURGADO:
+        raise HTTPException(409, "Os dados deste envio já foram eliminados.")
     try:
-        decidido = envios.decidir(envio_id, sujeito.persona, body.status == "approved",
-                                  body.response, body.nivel, body.setores)
-    except envios.DecisaoInvalida as erro:
-        raise HTTPException(422, str(erro)) from None
+        decidido = envios.decidir(envio, sujeito.persona, body.status, body.response)
+    except PermissionError:
+        raise HTTPException(403, "Seu perfil não pode aprovar este envio.") from None
+    except envios.DecisaoConflitante:
+        raise HTTPException(409, "Este envio não está pendente de aprovação.") from None
+    except SQLAlchemyError:
+        raise HTTPException(503, BANCO_INDISPONIVEL) from None
     return _item(decidido, sujeito)
 
-
-@router.post("/document-jobs/{envio_id}/forget", response_model=UploadItem)
-def esquecer(envio_id: str, sujeito: SujeitoDep, response: Response) -> UploadItem:
-    """Quem enviou pede a eliminação dos dados pessoais do envio (LGPD art. 18, VI): nome do
-    arquivo, resposta do aprovador e fatos de férias. Fica a classificação, sem dado pessoal."""
-    sem_cache(response)
-    envio = envios.obter(envio_id)
-    if envio is None or sujeito.persona is None or envio.enviado_por != sujeito.id:
-        raise HTTPException(404, NAO_ENCONTRADO)
-    try:
-        return _item(envios.esquecer(envio_id, sujeito.persona), sujeito)
-    except envios.DecisaoInvalida as erro:
-        raise HTTPException(409, str(erro)) from None

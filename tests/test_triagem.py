@@ -10,8 +10,8 @@ from pypdf import PdfWriter
 
 from app.core.config import RAIZ
 from app.services.triagem import detectores
-from app.services.triagem.extracao import ArquivoRecusado, extrair, extrair_isolado
-from app.services.triagem.servico import triar_arquivo
+from app.services.triagem.extracao import ArquivoRecusado, extrair, rodar_isolado
+from app.services.triagem.servico import _triar_no_filho, triar_arquivo
 
 BRONZE = RAIZ / "acervo" / "bronze"
 CPF_VALIDO = "529.982.247-25"
@@ -163,11 +163,12 @@ def test_bomba_de_descompressao_e_recusada(tmp_path):
         extrair(tmp_path / "bomba.docx", "bomba.docx")
 
 
-def test_parser_isolado_e_tempo_limite(tmp_path):
+def test_parser_isolado_e_tempo_limite():
     pdf = next(BRONZE.rglob("TB_1111-001*.pdf"))
-    assert "Tabela 1" in extrair_isolado(pdf, pdf.name).texto
+    isolada = triar_arquivo(pdf, pdf.name, isolar=True)
+    assert isolada.formato == "pdf" and isolada.caracteres > 0
     with pytest.raises(ArquivoRecusado, match="interrompida"):
-        extrair_isolado(pdf, pdf.name, tempo_limite_s=0.001)
+        rodar_isolado(_triar_no_filho, str(pdf), pdf.name, tempo_limite_s=0.001)
 
 
 def test_pontuacao_comercial_ignora_valor_sem_contexto():

@@ -1,7 +1,7 @@
-"""Envio de arquivos (/document-jobs): contrato do front, triagem, aprovação por setor e banco."""
+"""Envio de arquivos (/document-jobs): contrato do front, triagem, quem vê o pendente e banco."""
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.config import get_settings
 from app.services import envios
@@ -17,7 +17,11 @@ CAMPOS_DO_FRONT = {"id", "name", "size", "status", "message"}
 
 @pytest.fixture(autouse=True)
 def _limpo():
+    envios.esperar()
     envios.limpar()
+    with envios._engine().begin() as c:
+        c.execute(delete(envios.arquivos))
+        c.execute(delete(envios.tabela))
     yield
     envios.esperar()
 
@@ -43,12 +47,6 @@ def _triado(client, persona: str, nome: str, conteudo: str | bytes) -> dict:
 def _ver(client, persona: str | None, envio_id: str):
     headers = {"X-Persona-Id": persona} if persona else {}
     return client.get(f"/document-jobs/{envio_id}", headers=headers)
-
-
-def _decidir(client, persona: str, envio_id: str, **corpo):
-    return client.post(f"/document-jobs/{envio_id}/decision",
-                       json={"status": "approved", "response": "", **corpo},
-                       headers={"X-Persona-Id": persona})
 
 
 # ---------- contrato ----------
@@ -97,7 +95,8 @@ def test_limite_de_corpo_vale_so_para_o_envio(client, monkeypatch):
     [grande] = _enviar(client, "ana", "norma.md", NORMA).json()  # 2,6 KB > 1000 bytes
     assert grande["status"] == "failed"
     assert _enviar(client, "ana", "x.md", "a" * 70_000).status_code == 413
-    r = client.post("/chat", json={"message": "a" * 20_000, "personaId": "ana"})
+    r = client.post("/conversations/messages",
+                    json={"query": "a" * 20_000, "context": {"persona": "ana"}})
     assert r.status_code == 413  # as outras rotas continuam com 16 KiB
 
 
@@ -107,58 +106,26 @@ def test_origem_de_outro_site_e_recusada(client):
     assert _enviar(client, "ana", "norma.md", NORMA, origem="null").status_code == 403
     ok = _enviar(client, "ana", "norma.md", NORMA, origem="http://localhost:3000")
     assert ok.status_code == 200
+    mesma = _enviar(client, "ana", "norma.md", NORMA, origem="http://testserver")  # o Swagger
+    assert mesma.status_code == 200
 
 
 # ---------- aprovação ----------
-def test_codigo_do_junior_espera_o_tech_lead_e_financeiro_nao_ve(client):
+def test_codigo_do_junior_fica_pendente_e_financeiro_nao_ve(client):
     item = _triado(client, "bruno", "servico.py", CODIGO)
     assert item["classificacao"]["nivel"] == "Sigilosa"
     assert item["classificacao"]["setores"] == ["GEINOV"]
     assert item["aprovacao"] == "pendente" and "GEINOV" in item["aprovadores"]
-    assert not item["podeDecidir"]  # quem enviou não aprova
-
+    assert _ver(client, "helena", item["id"]).status_code == 200  # tech lead: aprovador
     assert _ver(client, "fernanda", item["id"]).status_code == 404  # financeiro não vê código
     assert _ver(client, None, item["id"]).status_code == 404
-    r = _decidir(client, "bruno", item["id"])
-    assert r.status_code == 403 and "próprio" in r.json()["detail"]
-
-    pendentes = client.get("/document-jobs?aprovacao=pendente",
-                           headers={"X-Persona-Id": "helena"}).json()
-    assert [p["id"] for p in pendentes] == [item["id"]] and pendentes[0]["podeDecidir"]
-    r = _decidir(client, "helena", item["id"], response="Revisado.")
-    assert r.status_code == 200, r.text
-    aprovado = r.json()
-    assert aprovado["aprovacao"] == "aprovado" and aprovado["decidedBy"] == "helena"
-    assert aprovado["nivelFinal"] == "Sigilosa" and aprovado["setoresFinais"] == ["GEINOV"]
-    assert _decidir(client, "helena", item["id"]).status_code == 403  # já decidido
-    assert _ver(client, "fernanda", item["id"]).status_code == 404  # continua fora do GFI
 
 
-def test_junior_com_conteudo_interno_so_aparece_depois_da_aprovacao(client):
+def test_junior_com_conteudo_interno_nao_vai_para_o_setor_sem_aprovacao(client):
     item = _triado(client, "bruno", "guia.md", NORMA)
     assert item["classificacao"]["nivel"] == "Interna" and item["aprovacao"] == "pendente"
     assert _ver(client, "marina", item["id"]).status_code == 404
-    assert _decidir(client, "marina", item["id"]).status_code == 404  # nem sabe que existe
-    assert _decidir(client, "helena", item["id"]).status_code == 200
-    assert _ver(client, "marina", item["id"]).status_code == 200
-
-
-def test_aprovador_corrige_nivel_e_setores(client):
-    item = _triado(client, "bruno", "guia.md", NORMA)
-    r = _decidir(client, "helena", item["id"], nivel="Sigilosa", setores=["GEINOV", "XYZ"])
-    assert r.status_code == 422
-    r = _decidir(client, "helena", item["id"], nivel="Sigilosa", setores=["GEINOV", "DIRTEC"])
-    assert r.json()["setoresFinais"] == ["GEINOV", "DIRTEC"]
-    assert _ver(client, "marina", item["id"]).status_code == 404
-
-
-def test_recusa(client):
-    item = _triado(client, "bruno", "servico.py", CODIGO)
-    r = client.post(f"/document-jobs/{item['id']}/decision",
-                    json={"status": "rejected", "response": "Falta revisão de código."},
-                    headers={"X-Persona-Id": "helena"})
-    assert r.json()["aprovacao"] == "recusado" and "Falta revisão" in r.json()["message"]
-    assert _ver(client, "bruno", item["id"]).status_code == 200
+    assert _ver(client, "helena", item["id"]).status_code == 200
 
 
 def test_formulario_preenchido_vai_para_a_gepec_aprovar(client):
@@ -167,45 +134,12 @@ def test_formulario_preenchido_vai_para_a_gepec_aprovar(client):
     assert item["departamento"]["sigla"] == "GEPEC" and item["aprovacao"] == "pendente"
     # Gestor de quem enviou, sem habilitação Sigilosa nem necessidade de conhecer: não vê.
     assert _ver(client, "carlos", item["id"]).status_code == 404
-    assert _ver(client, "curadora_ggc", item["id"]).json()["podeDecidir"]  # setor dono
-    assert _ver(client, "diretora_diraf", item["id"]).json()["podeDecidir"]  # diretoria da GEPEC
+    assert _ver(client, "curadora_ggc", item["id"]).status_code == 200  # setor dono
+    assert _ver(client, "diretora_diraf", item["id"]).status_code == 200  # diretoria da GEPEC
     assert _ver(client, "helena", item["id"]).status_code == 404
 
 
-def test_aprovador_nao_guarda_acesso_depois_da_decisao(client):
-    item = _triado(client, "bruno", "guia.md", NORMA)  # Interna de júnior: o GEINOV aprova
-    r = _decidir(client, "helena", item["id"], nivel="Sigilosa", setores=["GFI"])
-    assert r.status_code == 200
-    assert _ver(client, "helena", item["id"]).status_code == 404  # fora da lista confirmada
-    assert _ver(client, "fernanda", item["id"]).status_code == 200
-    assert _ver(client, "bruno", item["id"]).status_code == 200  # quem enviou sempre vê
-
-
-def test_recusado_fica_com_quem_enviou_e_quem_decidiu(client):
-    item = _triado(client, "bruno", "guia.md", NORMA)
-    _decidir(client, "helena", item["id"], status="rejected")
-    assert _ver(client, "helena", item["id"]).status_code == 200
-    assert _ver(client, "curadora_ggc", item["id"]).status_code == 404
-
-
-# ---------- retenção e eliminação (LGPD) ----------
-def test_quem_enviou_pede_a_eliminacao(client):
-    item = _triado(client, "bruno", "minhas_ferias.txt",
-                   FORM.replace("Joana Pereira da Silva", "Bruno Lima"))
-    assert item["ferias"]["faltasInjustificadas"] == 8
-    url = f"/document-jobs/{item['id']}/forget"
-    assert client.post(url, headers={"X-Persona-Id": "curadora_ggc"}).status_code == 404
-    r = client.post(url, headers={"X-Persona-Id": "bruno"})
-    assert r.status_code == 200, r.text
-    assert r.json()["name"] == envios.EXPURGADO and r.json()["ferias"] is None
-    assert r.json()["classificacao"]["nivel"] == "Sigilosa"  # a classificação fica
-    envios.esperar()
-    with envios._engine().connect() as c:
-        linha = c.execute(select(envios.tabela).where(envios.tabela.c.id == item["id"])
-                          ).mappings().one()
-    assert linha["fatos_ferias"] is None and linha["nome_arquivo"] == envios.EXPURGADO
-
-
+# ---------- retenção (LGPD) ----------
 def test_prazo_de_retencao_elimina_os_dados_pessoais(client):
     from datetime import UTC, datetime, timedelta
 
@@ -246,12 +180,131 @@ def test_banco_guarda_a_triagem_sem_o_conteudo(client):
 def test_restaurar_traz_os_envios_de_volta(client):
     item = _triado(client, "bruno", "servico.py", CODIGO)
     envios.limpar()
-    assert _ver(client, "bruno", item["id"]).status_code == 404
+    assert _ver(client, "bruno", item["id"]).status_code == 200
     assert envios.restaurar() >= 1
     volta = _ver(client, "helena", item["id"]).json()
-    assert volta["aprovacao"] == "pendente" and volta["podeDecidir"]
+    assert volta["aprovacao"] == "pendente"
 
 
 def test_id_invalido_e_404(client):
     assert _ver(client, "ana", "../../etc").status_code == 404
     assert _ver(client, "ana", "0" * 32).status_code == 404
+
+
+def test_historico_e_original_sobrevivem_a_memoria_vazia(client):
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    envios.limpar()
+    r = client.get("/document-jobs", headers={"X-Persona-Id": "bruno"})
+    assert r.status_code == 200 and r.headers["cache-control"] == "private, no-store"
+    assert [e["id"] for e in r.json()] == [item["id"]]
+    assert r.json()[0]["saved"] and r.json()[0]["fileAvailable"]
+    original = client.get(f"/document-jobs/{item['id']}/file",
+                          headers={"X-Persona-Id": "bruno"})
+    assert original.status_code == 200 and original.content == CODIGO.encode()
+    assert original.headers["cache-control"] == "private, no-store"
+    assert "attachment" in original.headers["content-disposition"]
+
+
+def test_historico_e_download_respeitam_permissoes(client):
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    assert client.get("/document-jobs").status_code == 401
+    for persona in ("fernanda", "ana"):
+        headers = {"X-Persona-Id": persona}
+        assert client.get("/document-jobs", headers=headers).json() == []
+        assert client.get(f"/document-jobs/{item['id']}/file", headers=headers).status_code == 404
+    aprovador = client.get("/document-jobs", headers={"X-Persona-Id": "helena"}).json()
+    assert aprovador[0]["canApprove"]
+    assert not _ver(client, "bruno", item["id"]).json()["canApprove"]
+
+
+def test_aprovacao_persistida_e_nao_repetida(client):
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    url = f"/document-jobs/{item['id']}/decision"
+    body = {"status": "aprovado"}
+    assert client.post(url, json=body, headers={"X-Persona-Id": "bruno"}).status_code == 403
+    aprovado = client.post(url, json=body, headers={"X-Persona-Id": "helena"})
+    assert aprovado.status_code == 200
+    assert aprovado.json()["aprovacao"] == "aprovado" and not aprovado.json()["canApprove"]
+    assert aprovado.json()["decidedBy"] == "helena" and aprovado.json()["decidedAt"].endswith("Z")
+    assert aprovado.json()["nivelFinal"] == "Sigilosa"
+    assert aprovado.json()["setoresFinais"] == ["GEINOV"]
+    envios.limpar()
+    assert _ver(client, "bruno", item["id"]).json()["aprovacao"] == "aprovado"
+    assert client.post(url, json=body, headers={"X-Persona-Id": "helena"}).status_code == 409
+
+
+def test_falha_de_gravacao_nao_confirma_recebimento(client, monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    def falhar(*args):
+        raise SQLAlchemyError("credencial-do-driver-que-nao-deve-sair")
+
+    monkeypatch.setattr(envios, "_gravar_no_banco", falhar)
+    r = _enviar(client, "ana", "norma.md", NORMA)
+    assert r.status_code == 503
+    assert "credencial" not in r.text
+    assert client.get("/document-jobs", headers={"X-Persona-Id": "ana"}).json() == []
+    assert envios._na_fila == 0
+
+
+def test_retencao_e_eliminacao_removem_originais_do_banco(client):
+    from datetime import UTC, datetime, timedelta
+
+    item = _triado(client, "ana", "norma.md", NORMA)
+    assert envios.eliminar_a_pedido(item["id"]) == "eliminado"
+    assert not _ver(client, "ana", item["id"]).json()["fileAvailable"]
+    assert client.get(f"/document-jobs/{item['id']}/file",
+                      headers={"X-Persona-Id": "ana"}).status_code == 404
+    outro = _triado(client, "ana", "norma.md", NORMA)
+    envios.limpar()  # retenção precisa alcançar também envios fora do cache
+    depois = datetime.now(UTC) + timedelta(days=get_settings().retencao_envios_dias + 1)
+    assert envios.expurgar(depois) == 1
+    with envios._engine().connect() as c:
+        assert c.execute(select(envios.arquivos)).first() is None
+    assert _ver(client, "ana", outro["id"]).json()["name"] == envios.EXPURGADO
+
+
+def test_paginacao_do_historico_depois_da_autorizacao(client):
+    _triado(client, "bruno", "servico.py", CODIGO)
+    primeiro = _triado(client, "ana", "um.md", NORMA)
+    segundo = _triado(client, "ana", "dois.md", NORMA)
+    headers = {"X-Persona-Id": "ana"}
+    assert client.get("/document-jobs?limit=1", headers=headers).json()[0]["id"] == segundo["id"]
+    assert client.get("/document-jobs?limit=1&offset=1", headers=headers).json()[0]["id"] \
+        == primeiro["id"]
+
+
+def test_original_e_registro_lidos_por_outro_processo(client):
+    import json
+    import subprocess
+    import sys
+
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    r = subprocess.run([sys.executable, "-c", (
+        "import json, sys; from app.services import envios; "
+        "e=envios.obter(sys.argv[1]); "
+        "print(json.dumps({'nome':e.nome_arquivo, 'conteudo':envios.conteudo(e).decode()}))"
+    ), item["id"]], capture_output=True, text=True, check=True, timeout=20)
+    assert json.loads(r.stdout) == {"nome": "servico.py", "conteudo": CODIGO}
+
+
+def test_duas_decisoes_concorrentes_so_confirmam_uma(client):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.core.personas import PERSONAS
+
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    primeiro, segundo = envios.obter(item["id"]), envios.obter(item["id"])
+
+    def decidir(envio, status):
+        try:
+            return envios.decidir(envio, PERSONAS["helena"], status).aprovacao
+        except envios.DecisaoConflitante:
+            return "conflito"
+
+    with ThreadPoolExecutor(max_workers=2) as fila:
+        a = fila.submit(decidir, primeiro, "aprovado")
+        b = fila.submit(decidir, segundo, "recusado")
+        resultados = [a.result(), b.result()]
+    assert resultados.count("conflito") == 1
+    assert envios.obter(item["id"]).aprovacao in resultados

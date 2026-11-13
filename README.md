@@ -25,35 +25,43 @@ cp .env.example .env
 uvicorn app.main:app --reload      # http://localhost:8000
 ```
 
-- Swagger: http://localhost:8000/swagger. O caminho `/docs` é uma rota do contrato: o catálogo do
-  acervo.
-- Saúde: http://localhost:8000/health.
+- Swagger: http://localhost:8000/swagger.
 - No primeiro start, a API lê os PDFs de `acervo/bronze/` e grava o cache em `data/silver.json`.
 
 Teste rápido, como a persona Ana (setor GOP, habilitação Interna):
 
 ```bash
-curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
-  -d '{"message": "Quero férias a partir de 05/05/2027. Até quando peço?", "tema": "ferias", "personaId": "ana"}'
+curl -s -X POST http://localhost:8000/conversations/messages -H "Content-Type: application/json" \
+  -d '{"query": "Quero férias a partir de 05/05/2027. Até quando peço?", "context": {"conversationId": "teste", "tema": "ferias", "area": "", "perspective": "obligations", "from": "", "to": "", "persona": "ana"}}'
 ```
+
+Com o front: suba o back com `DEMO_DEFAULT_PERSONA=ana` (o front não manda a persona em todas
+as rotas; ver [docs/PENDENCIAS_FRONT.md](docs/PENDENCIAS_FRONT.md)) e o hacka-front com
+`NEXT_PUBLIC_API_URL=http://localhost:8000`. Abra o front em `http://localhost:3000`, a origem
+liberada em `CORS_ORIGINS`.
 
 ## Rotas
 
+A API expõe só o que o [hacka-front](https://github.com/jvictorgp19-rgb/hacka-front) (branch
+`Homolog`) chama:
+
 | Rota | O que faz |
 |---|---|
-| `POST /chat` | Responde perguntas com calculadora, alerta de regra revogada, abstenção honesta ou busca + LLM |
-| `GET /docs?tema=` | Catálogo do acervo visível para a persona |
-| `GET /radar?hoje=` | Prazos que vencem (férias, contrato), com criticidade |
-| `GET /access` | Pedidos de acesso (stub de leitura) |
-| `POST /reports` · `GET /reports/pptx` | Deck executivo em JSON ou `.pptx`, com citações nas notas |
-| `GET /ingest?hoje=` | Auditoria do acervo: anacronismos, referências ausentes, conflito de vigência |
-| `GET /grafo?tema=` | Mapa do acervo: documentos, versões e relações no nível de quem consulta |
-| `GET /identity` · `POST /identity` | Quem é o usuário do front; grava a persona (ou o token) em cookie HttpOnly |
-| `POST /document-jobs` · `GET /document-jobs[/{id}]` | Envio de arquivo: triagem (sigilo + setor dono) em segundo plano |
-| `GET /analyses/charts?panel=` | Gráficos (acervo, radar, triagem, uso) agregados com pandas; o front desenha |
-| `POST /document-jobs/{id}/decision` | Aprovador do setor confirma, corrige ou recusa a classificação |
+| `GET /identity` | Quem é o usuário do front, com as capacidades da tela |
+| `GET /documents` · `GET /documents/{id}/file` | Catálogo do acervo visível e o PDF, com a mesma ACL |
+| `GET /analyses/evidence` | Fatos citados para análises e resumos |
+| `GET /deadlines` | Prazos que vencem (férias, contrato), com prioridade |
+| `GET /audit/findings` | Auditoria do acervo para a governança: anacronismos, referências ausentes, conflito de vigência |
+| `GET /simulation-rules` | Regras das calculadoras, com as fontes |
+| `GET` · `POST /conversations/messages` | Chat: calculadora, alerta de regra revogada, abstenção honesta ou busca + LLM; e o histórico |
+| `GET` · `POST /access-requests` · `POST /access-requests/{id}/decision` | Pedidos de acesso ao setor dono |
+| `GET` · `POST /analyses` | Análises e resumos salvos |
+| `GET` · `POST /feedback` | Avaliação das respostas |
+| `POST /document-jobs` · `GET /document-jobs` · `GET /document-jobs/{id}` | Envio persistente, histórico e triagem (sigilo + setor dono) |
+| `GET /document-jobs/{id}/file` · `POST /document-jobs/{id}/decision` | Original com controle de acesso e aprovação registrada |
 
-Formatos, identidade, limites e ajustes pedidos ao front: [docs/CONTRATO.md](docs/CONTRATO.md).
+Formatos, identidade, limites e pendências do front: [docs/CONTRATO.md](docs/CONTRATO.md) e
+[docs/PENDENCIAS_FRONT.md](docs/PENDENCIAS_FRONT.md).
 
 ## Identidade e acesso
 
@@ -80,8 +88,9 @@ A classificação segue [docs/CLASSIFICACAO_BBTS.md](docs/CLASSIFICACAO_BBTS.md)
 | `diretora_diraf` | DIRAF | Diretora | Sigilosa | NT_2026-021, NT_2026-018 |
 | `curadora_ggc` | GEPEC | Curadora | Sigilosa | versões substituídas, dossiê da folha |
 
-- `AUTH_MODE=demo` (padrão): `personaId` no body, header `X-Persona-Id` ou query `?personaId=`.
-  Sem persona válida, só o nível Pública: listas vazias.
+- `AUTH_MODE=demo` (padrão): `personaId` no body, header `X-Persona-Id`, query `?personaId=`
+  ou `?persona=`, ou `DEMO_DEFAULT_PERSONA`. Sem persona válida, só o nível Pública: listas
+  vazias.
 - `AUTH_MODE=token`: exige `Authorization: Bearer <token>`. Para emitir:
   `python -m app.core.auth <personaId>` (precisa de `AUTH_TOKEN_SECRET` com 32+ caracteres).
 
@@ -118,7 +127,7 @@ O banco é o [Neon](https://neon.tech), que é PostgreSQL. Ele guarda duas coisa
   | `acervo_ingestao` · `acervo_quarentena` | Cada execução, com contagens, e os arquivos recusados |
   | `sistema_persona` · `sistema_pedido_acesso` | Personas da demo e pedidos de acesso |
 
-  O chat, a busca e o grafo da API continuam lendo dos arquivos: o banco é cópia, não a fonte.
+  O chat e a busca da API continuam lendo dos arquivos: o banco é cópia, não a fonte.
   Toda linha com conteúdo do acervo tem a coluna `nivel`. Quem ler essas tabelas para mostrar
   algo a alguém precisa filtrar por ela.
 
@@ -199,8 +208,9 @@ Os links de cada arquivo usam `ACERVO_REPO_URL`. O padrão é o `blob/main` dest
 - **O dono do banco pode alterar ou apagar registros.** Para servir de prova contra quem
   administra o banco, a trilha teria que ser exportada para um armazenamento imutável, sob outro
   controle.
-- **Falta definir retenção e expurgo** antes de usar dados reais. Os metadados ligados a uma
-  pessoa continuam sendo dados pessoais.
+- **Falta definir retenção e expurgo da auditoria** antes de usar dados reais. Os metadados
+  ligados a uma pessoa continuam sendo dados pessoais. Envios e registros do site já têm
+  retenção (`RETENCAO_ENVIOS_DIAS`, `RETENCAO_REGISTROS_DIAS`).
 - Revisão completa: [docs/SEGURANCA_NEON_CODEX.md](docs/SEGURANCA_NEON_CODEX.md).
 
 ## Testes e avaliação
@@ -255,17 +265,32 @@ processo separado, com tempo limite. Sobre o acervo do desafio, a triagem reprod
 classificação BBTS nos 13 PDFs (`tests/test_triagem.py`).
 
 Pelo site, o mesmo fluxo roda em `POST /document-jobs`. O envio de júnior, ou o envio com
-sugestão sigilosa, espera a aprovação de um gestor ou sênior do setor. Regras em
-[docs/CONTRATO.md](docs/CONTRATO.md). A tabela `triagem_documento` é criada uma vez com o
-papel dono: `python -m app.services.envios raiz_app`. O comando dá ao papel da aplicação só
-`SELECT`, `INSERT` e `UPDATE`.
+sugestão sigilosa, fica pendente de aprovação, visível só para quem enviou e para os
+aprovadores. `GET /document-jobs` recupera o histórico ao voltar à aba ou recarregar a página.
+O recebimento só é confirmado depois do commit do registro e do original, na mesma transação.
+O original fica em `triagem_arquivo`, pode ser baixado com autorização e é eliminado junto
+com os dados pessoais na retenção. A cópia temporária usada pela triagem continua sendo apagada.
+`POST /document-jobs/{id}/decision` confirma a sugestão e registra responsável e data.
+Regras em [docs/CONTRATO.md](docs/CONTRATO.md).
+
+Antes de atualizar uma instalação existente, rode com o papel dono (conexão direta) e volte
+depois à credencial restrita da aplicação:
+
+```bash
+python -m app.services.envios raiz_app
+```
+
+O comando cria a nova tabela sem alterar os registros existentes e concede `SELECT`, `INSERT`,
+`UPDATE` em `triagem_documento` e `SELECT`, `INSERT`, `DELETE` em `triagem_arquivo`.
+Originais apagados pela versão anterior precisam ser reenviados; os registros antigos
+continuam aparecendo no histórico.
 
 ## Estrutura
 
 ```
 app/
-├─ main.py              # FastAPI, CORS, limite de corpo, /health, carga do acervo
-├─ api/routes/          # rotas do contrato com o front
+├─ main.py              # FastAPI, CORS, limite de corpo, carga do acervo, retenção
+├─ api/routes/          # rotas do contrato com o front (front, envios, identidade)
 ├─ core/                # config, acesso por setor, setores, personas, autenticação, limites
 ├─ schemas/             # contrato JSON (camelCase, igual ao front)
 ├─ seed/                # manifesto do acervo e JSON curado do front
@@ -276,8 +301,10 @@ app/
    ├─ agent/            # intenções, guardas e roteador de custo do chat
    ├─ calculators/      # férias, alçadas, contrato, calendário de dias úteis
    ├─ triagem/          # arquivo enviado -> texto -> sigilo + setor dono (sugestão)
-   ├─ grafo.py          # mapa do acervo
-   └─ radar, reports, access, ingest_audit, audit_log
+   ├─ front.py          # regras das rotas do site; evidencias.py e registros.py ao lado
+   ├─ envios.py         # envio de arquivo: triagem, quem vê, retenção
+   ├─ grafo.py          # relações do acervo para o espelho no banco
+   └─ acervo, radar, ingest_audit, audit_log, persistencia, retencao
 acervo/bronze/          # PDFs
 scripts/                # gerador do manifesto e triagem pela linha de comando
 tests/                  # pytest + tests/eval (banco de perguntas)
@@ -288,9 +315,12 @@ docs/                   # contrato, plano, metodologia e revisões de segurança
 
 | Arquivo | Conteúdo |
 |---|---|
-| [docs/CONTRATO.md](docs/CONTRATO.md) | Rotas, formatos, identidade, limites e ajustes do front |
+| [docs/CONTRATO.md](docs/CONTRATO.md) | Rotas, formatos, identidade e limites |
+| [docs/PENDENCIAS_FRONT.md](docs/PENDENCIAS_FRONT.md) | O que o back achou no front e não contorna |
+| [docs/HISTORICO_COMMITS.md](docs/HISTORICO_COMMITS.md) | O que cada commit mudou, por quê e com qual base legal |
+| [docs/CLASSIFICACAO_BBTS.md](docs/CLASSIFICACAO_BBTS.md) | Classificação Interna/Sigilosa por setor |
 | [docs/PLANO.md](docs/PLANO.md) | Plano do back-end aprovado |
-| [docs/METODOLOGIA_GRAFO.md](docs/METODOLOGIA_GRAFO.md) | Como o acervo é ingerido, como o chat busca e como o grafo é montado |
+| [docs/METODOLOGIA_GRAFO.md](docs/METODOLOGIA_GRAFO.md) | Como o acervo é ingerido, como o chat busca e como as relações são montadas |
 | [docs/SEGURANCA_REVISAO_CODEX.md](docs/SEGURANCA_REVISAO_CODEX.md) | Revisão de segurança do back (SEC-01 a SEC-27) |
 | [docs/SEGURANCA_GRAFO_CODEX.md](docs/SEGURANCA_GRAFO_CODEX.md) | Revisão de segurança do grafo (GRAFO-01 a GRAFO-24) |
 | [docs/SEGURANCA_NEON_CODEX.md](docs/SEGURANCA_NEON_CODEX.md) | Revisão de segurança da auditoria no Neon (NEON-01 a NEON-09) |

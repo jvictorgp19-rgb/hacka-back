@@ -28,7 +28,7 @@ thiago ─────────┘      (integração)     (estável)       (
 
 - Nunca push direto em `main` e `homolog-*`.
 - Nunca commitar `.env` ou chaves; use `.env.example`.
-- **Contrato primeiro:** front e back combinam o formato JSON (OpenAPI do FastAPI em `/docs`) antes de implementar. Mocks no front destravam o trabalho em paralelo.
+- **Contrato primeiro:** front e back combinam o formato JSON (OpenAPI do FastAPI em `/swagger`) antes de implementar. Mocks no front destravam o trabalho em paralelo.
 - Mudanças de contrato são avisadas no chat e registradas em `docs/`.
 - Sempre mantenha o mesmo nome de feature nos dois repos nas mensagens de PR (ex.: `feat(login): ...`).
 - Nas últimas horas: congelar `homolog-demo`, apenas hotfix.

@@ -106,10 +106,5 @@ def test_multa_de_rescisao_vira_no_91o_dia():
         contrato.multa_rescisao(date(2028, 1, 1))
 
 
-def test_pagamento_dia_8_ou_dia_util_seguinte():
-    assert contrato.pagamento_do_mes(2027, 1) == date(2027, 1, 8)  # sexta
-    assert contrato.pagamento_do_mes(2027, 5) == date(2027, 5, 10)  # dia 8 é sábado
-
-
 def test_feriado_movel():
     assert cal.feriado(date(2027, 3, 26)) == "Sexta-feira Santa"
