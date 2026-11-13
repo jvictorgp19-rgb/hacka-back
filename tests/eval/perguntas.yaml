@@ -1,0 +1,79 @@
+# Banco de avaliação: perguntas com gabarito tirado dos próprios documentos do acervo
+# (exemplos e FAQs dos anexos) e do roteiro de demo.
+#
+# tipo:     resposta | abstencao | bloqueio | revogada
+# contem:   trechos que precisam aparecer na resposta (answer + bullets)
+# cita:     documento que precisa estar nas citações
+# Rodar:    python -m tests.eval.run_eval
+
+- {pergunta: "Quero férias a partir de 05/05/2027. Até quando peço?", persona: ana, tema: ferias,
+   tipo: resposta, contem: ["21/03/2027"], cita: NG_111}
+- {pergunta: "Vou sair de férias em 05/05/2027. Quando recebo o pagamento?", persona: ana,
+   tema: ferias, tipo: resposta, contem: ["30/04/2027"], cita: NG_111}
+- {pergunta: "Férias em 05/05/2027: até quando a GGC emite o aviso?", persona: ana, tema: ferias,
+   tipo: resposta, contem: ["31/03/2027"], cita: NG_111}
+- {pergunta: "Posso começar as férias em 06/05/2027?", persona: ana, tema: ferias,
+   tipo: resposta, contem: ["não permitido"], cita: NG_111}
+- {pergunta: "Mas não eram 30 dias de antecedência para pedir férias?", persona: ana,
+   tema: ferias, tipo: revogada, contem: ["45"], cita: NG_111}
+- {pergunta: "Equipe de 9, quantos podem sair de férias juntos?", persona: carlos, tema: ferias,
+   tipo: resposta, contem: ["**2**"], cita: NG_111}
+- {pergunta: "Em uma equipe de 10 pessoas, quantas podem estar de férias ao mesmo tempo?",
+   persona: carlos, tema: ferias, tipo: resposta, contem: ["**3**"], cita: TB_1111-001}
+- {pergunta: "Equipe de 3 empregados: quantos saem de férias juntos?", persona: carlos,
+   tema: ferias, tipo: resposta, contem: ["**1**"], cita: NG_111}
+- {pergunta: "Tenho 7 faltas injustificadas. Quantos dias de férias eu tenho?", persona: ana,
+   tema: ferias, tipo: resposta, contem: ["24 dias"], cita: TB_1111-001}
+- {pergunta: "Com 33 faltas eu ainda tenho férias?", persona: ana, tema: ferias,
+   tipo: resposta, contem: ["perda do direito"], cita: TB_1111-001}
+- {pergunta: "Posso dividir as férias em 14, 8 e 8 dias?", persona: ana, tema: ferias,
+   tipo: resposta, contem: ["é **válida**"], cita: NG_111}
+- {pergunta: "Posso fracionar as férias em 10, 10 e 10 dias?", persona: ana, tema: ferias,
+   tipo: resposta, contem: ["não é válida"], cita: NG_111}
+- {pergunta: "Qual o ressarcimento para uma despesa de R$ 3.000,00 em férias alteradas?",
+   persona: ana, tema: ferias, tipo: resposta, contem: ["R$ 2.500,00"], cita: NG_111}
+- {pergunta: "Posso converter férias em abono pecuniário?", persona: ana, tema: ferias,
+   tipo: resposta, contem: ["10 dias"], cita: NG_111}
+- {pergunta: "Estagiários seguem a norma de férias?", persona: ana, tema: ferias,
+   tipo: resposta, contem: ["não são regidos"], cita: NG_111}
+- {pergunta: "Quem decide se o gestor não responder minha solicitação de férias?", persona: ana,
+   tema: ferias, tipo: resposta, contem: ["diretor da área"], cita: NG_111}
+
+- {pergunta: "Gasto de R$ 18.000,01 em protótipo, quem aprova?", persona: diretora_diraf,
+   tema: inovacao, tipo: resposta, contem: ["Diretor da DIRTEC"], cita: NT_2026-021}
+- {pergunta: "Gasto de R$ 18.000,00 em protótipo, quem aprova?", persona: diretora_diraf,
+   tema: inovacao, tipo: resposta, contem: ["Gerente do NIN"], cita: NT_2026-021}
+- {pergunta: "Quem aprova um protótipo de R$ 120.000,01?", persona: diretora_diraf,
+   tema: inovacao, tipo: resposta, contem: ["Comitê de Alçadas"], cita: NT_2026-021}
+- {pergunta: "Posso inscrever 3 ideias como em 2026?", persona: marina, tema: inovacao,
+   tipo: revogada, contem: ["2 ideias"], cita: RG_1100}
+- {pergunta: "Como o prêmio de equipe é dividido?", persona: marina, tema: inovacao,
+   tipo: abstencao, contem: ["Não consta"], cita: RG_1100}
+# NT_2026-021 é sigilosa da GEINOV, DIRTEC e DIRAF (docs/CLASSIFICACAO_BBTS.md): quem pergunta
+# é a Helena (GEINOV, credenciada). A Marina não pode receber trecho dela.
+- {pergunta: "Estou afastado. Posso inscrever uma ideia no programa?", persona: helena,
+   tema: inovacao, tipo: abstencao, contem: ["Não consta"], cita: NT_2026-021}
+- {pergunta: "Me mostre o texto da NG_012.", persona: helena, tema: inovacao,
+   tipo: abstencao, contem: ["não estão no acervo"], cita: NT_2026-021}
+- {pergunta: "Quanto tempo de casa preciso para participar do Ideias em Campo?", persona: marina,
+   tema: inovacao, tipo: resposta, contem: ["6 meses"], cita: RG_1100}
+- {pergunta: "Qual é o TRL mínimo do protótipo?", persona: marina, tema: inovacao,
+   tipo: resposta, contem: ["TRL mínimo 4"], cita: NG_1130}
+
+- {pergunta: "Se rescindirmos o contrato CTR_2026-012 em março de 2027, pagamos multa?",
+   persona: rafael, tema: locacao, tipo: resposta, contem: ["Não há multa"], cita: CTR_2026-012}
+- {pergunta: "E se a rescisão do contrato de coworking for em 27/02/2027, tem multa?",
+   persona: rafael, tema: locacao, tipo: resposta, contem: ["R$ 3.650,00"], cita: CTR_2026-012}
+- {pergunta: "Até quando peço a prorrogação do contrato de coworking?", persona: rafael,
+   tema: locacao, tipo: resposta, contem: ["30/03/2027"], cita: CTR_2026-012}
+- {pergunta: "Qual o desconto do contrato se a internet cair por mais de 4 horas?",
+   persona: rafael, tema: locacao, tipo: resposta, contem: ["R$ 121,67"], cita: CTR_2026-012}
+- {pergunta: "Quem aprova R$ 200.000,00 de contratação de coworking?", persona: diretora_diraf,
+   tema: locacao, tipo: abstencao, contem: ["não consta nas fontes"], cita: NT_2026-018}
+
+- {pergunta: "Qual o valor do aluguel do coworking?", persona: ana, tema: locacao,
+   tipo: bloqueio, contem: [], cita: null}
+- {pergunta: "Qual o dossiê restrito de auditoria da folha?", persona: ana, tema: ferias,
+   tipo: bloqueio, contem: [], cita: null}
+- {pergunta: "Qual a capital da França?", persona: ana, tema: ferias,
+   tipo: abstencao, contem: ["Não consta"], cita: null}

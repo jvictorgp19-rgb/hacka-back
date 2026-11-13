@@ -1,0 +1,104 @@
+{
+  "fonte": "docs/CLASSIFICACAO_BBTS.md (departamentos fantasia, contexto BBTS)",
+  "setores": [
+    {
+      "sigla": "GEPEC",
+      "nome": "Gestão de Pessoas e Carreira",
+      "tipo": "departamento",
+      "unidadeAcervo": "GGC (Gerência de Gente e Cultura)",
+      "siglasAcervo": ["GGC"],
+      "diretoria": "DIRAF",
+      "missao": "Férias, jornada, benefícios e folha dos funcionários.",
+      "series": [1],
+      "palavrasChave": ["férias", "ferias", "folha de pagamento", "folha", "salário", "salario", "remuneração", "holerite", "contracheque", "benefício", "beneficio", "jornada", "ponto", "admissão", "admissao", "desligamento", "rescisão trabalhista", "abono", "13º", "décimo terceiro", "período aquisitivo", "faltas", "atestado", "licença", "matrícula", "empregado", "colaborador", "carreira", "treinamento", "avaliação de desempenho"]
+    },
+    {
+      "sigla": "GEINOV",
+      "nome": "Inovação e Transformação Digital",
+      "tipo": "departamento",
+      "unidadeAcervo": "NIN (Núcleo de Inovação), com aprovação da DIRTEC",
+      "siglasAcervo": ["NIN", "CIN"],
+      "diretoria": "DIRTEC",
+      "missao": "Ideias, protótipos e MVPs de soluções e serviços digitais.",
+      "series": [11],
+      "palavrasChave": ["inovação", "inovacao", "ideia", "ideias em campo", "protótipo", "prototipo", "mvp", "funil de inovação", "imersão", "piloto", "trl", "comitê de inovação", "hackathon", "transformação digital", "solução digital", "código-fonte", "codigo fonte", "repositório", "repositorio", "software", "api", "deploy", "sprint", "backlog", "pull request", "commit", "branch", "def ", "import ", "function", "class ", "return "]
+    },
+    {
+      "sigla": "GESUC",
+      "nome": "Suprimentos e Contratações",
+      "tipo": "departamento",
+      "unidadeAcervo": "GCO (Gerência de Compras e Contratos), com aprovação da DIRAF",
+      "siglasAcervo": ["GCO"],
+      "diretoria": "DIRAF",
+      "missao": "Contratações, cotações e gestão de contratos com fornecedores.",
+      "series": [4],
+      "palavrasChave": ["contrato", "contratação", "contratacao", "licitação", "licitacao", "cotação", "cotacao", "fornecedor", "locação", "locacao", "locadora", "locatária", "aditivo", "rescisão", "multa", "preço de referência", "proposta comercial", "compra", "suprimentos", "termo de referência", "fiscal do contrato", "vigência do contrato", "coworking"]
+    },
+    {
+      "sigla": "GENOC",
+      "nome": "Governança Normativa e Compliance Documental",
+      "tipo": "departamento",
+      "unidadeAcervo": "Arquivo Central de Normas (NG_010)",
+      "siglasAcervo": [],
+      "diretoria": "Não informada na classificação BBTS",
+      "missao": "Normativos internos, taxonomia, versionamento e conformidade do acervo.",
+      "series": [0, 9],
+      "palavrasChave": ["norma geral", "taxonomia", "categoria de documento", "numeração", "série", "versionamento", "vigência da norma", "arquivo central de normas", "ng_010", "conformidade", "compliance", "governança", "normativo", "catálogo"]
+    },
+    {
+      "sigla": "GOC",
+      "nome": "Operações de Campo",
+      "tipo": "departamento",
+      "unidadeAcervo": "GOC (Gerência de Operações de Campo)",
+      "siglasAcervo": ["GOC"],
+      "diretoria": "Não informada na classificação BBTS",
+      "missao": "Unidade demandante do coworking em Vale Azul e fiscal técnico do contrato.",
+      "series": [3],
+      "palavrasChave": ["operações de campo", "equipe de campo", "vistoria", "fiscal técnico", "ordem de serviço", "visita técnica", "equipamento", "instalação", "manutenção", "vale azul"]
+    },
+    {
+      "sigla": "GFI",
+      "nome": "Finanças e Contabilidade",
+      "tipo": "departamento",
+      "unidadeAcervo": "GFI (Gerência de Finanças)",
+      "siglasAcervo": ["GFI"],
+      "diretoria": "DIRAF",
+      "missao": "Área de pagamento: paga o contrato de coworking e as férias.",
+      "series": [2],
+      "palavrasChave": ["pagamento", "nota fiscal", "fatura", "boleto", "orçamento", "orcamento", "centro de custo", "contabilidade", "tributo", "imposto", "conciliação", "empenho", "reembolso", "despesa", "receita", "balanço"]
+    },
+    {
+      "sigla": "GOP",
+      "nome": "Gerência Operacional",
+      "tipo": "departamento",
+      "unidadeAcervo": "Operações / Portal Raiz (unidade das personas Ana e Carlos)",
+      "siglasAcervo": [],
+      "diretoria": "Não informada na classificação BBTS",
+      "missao": "Unidade de quem usa as normas no dia a dia. Não é dona de documento do acervo.",
+      "series": [],
+      "palavrasChave": []
+    },
+    {
+      "sigla": "DIRAF",
+      "nome": "Diretoria Administrativa e Financeira",
+      "tipo": "diretoria",
+      "unidadeAcervo": "DIRAF",
+      "siglasAcervo": ["DIRAF"],
+      "diretoria": "DIRAF",
+      "missao": "Aprova as normas da GEPEC e da GESUC e a contratação de coworking.",
+      "series": [],
+      "palavrasChave": []
+    },
+    {
+      "sigla": "DIRTEC",
+      "nome": "Diretoria Técnica",
+      "tipo": "diretoria",
+      "unidadeAcervo": "DIRTEC",
+      "siglasAcervo": ["DIRTEC"],
+      "diretoria": "DIRTEC",
+      "missao": "Aprova as normas e o orçamento da GEINOV.",
+      "series": [],
+      "palavrasChave": []
+    }
+  ]
+}
