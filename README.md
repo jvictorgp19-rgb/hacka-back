@@ -242,7 +242,9 @@ O que a triagem detecta:
 - credencial;
 - código-fonte, que fica só com a GEINOV;
 - valores comerciais;
-- versão substituída.
+- versão substituída;
+- faltas, período aquisitivo e datas de férias. O chat usa esses dados para responder
+  "quantos dias de férias eu tenho?" pelo que a pessoa enviou.
 
 O valor encontrado nunca vai para a saída: ela mostra só o tipo de dado e as páginas.
 

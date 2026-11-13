@@ -88,10 +88,16 @@ def mencoes(texto: str) -> Counter:
 
 
 def sugerir(texto: str, formato: str, codigo: str | None, vinculado_a: str | None,
-            elaborado_por: str | None, nome_arquivo: str) -> Sugestao:
+            elaborado_por: str | None, nome_arquivo: str,
+            extras: list[tuple[str, float, str]] = ()) -> Sugestao:
+    """`extras`: sinais de quem chama, como (sigla, pontos, explicação)."""
     pontos: Counter = Counter()
     sinais: list[str] = []
     candidatos = _departamentos()
+    for sigla, peso, explicacao in extras:
+        if sigla in candidatos:
+            pontos[sigla] += peso
+            sinais.append(explicacao)
 
     for sigla_acme in _SIGLA_ENTRE_PARENTESES.findall(elaborado_por or ""):
         sigla = por_sigla_do_acervo(sigla_acme)

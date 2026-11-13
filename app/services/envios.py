@@ -21,6 +21,9 @@ Aprovação (docs/CLASSIFICACAO_BBTS.md; LAI art. 27: classificar é ato de auto
 - Quem vê:
   - antes da decisão, só quem enviou e os aprovadores;
   - depois, vale a regra de acesso do nível e dos setores confirmados (app/core/acl.py).
+
+Fatos de férias (faltas, período aquisitivo, datas) são dados pessoais de quem enviou. Só veem
+quem enviou, os aprovadores do envio e a GEPEC (gestão de pessoas), mesmo depois da aprovação.
 """
 
 import logging
@@ -111,6 +114,7 @@ class Envio:
     decidido_por: str | None = None
     decidido_em: datetime | None = None
     resposta: str | None = None
+    fatos_ferias: dict | None = None
 
 
 # ---------- tabela no banco (Neon). Sem texto do arquivo. ----------
@@ -144,6 +148,7 @@ tabela = Table(
     Column("decidido_por", String(40)),
     Column("decidido_em", DateTime(timezone=True)),
     Column("resposta", Text),
+    Column("fatos_ferias", _JSON),  # só números e datas; ver app/services/triagem/ferias.py
 )
 
 
@@ -261,6 +266,20 @@ def pode_ver(persona: Persona | None, acesso: acl.Acesso, envio: Envio) -> bool:
     return acl.pode_ver(acesso, envio.nivel_final, envio.setores_finais)
 
 
+def ve_dados_pessoais(persona: Persona | None, envio: Envio) -> bool:
+    """Fatos de férias: quem enviou, quem aprova o envio e a GEPEC (LGPD art. 6º, III)."""
+    if persona is None:
+        return False
+    return (persona.id == envio.enviado_por or e_aprovador(persona, envio)
+            or persona.setor == "GEPEC")
+
+
+def ferias_de(persona_id: str) -> list[Envio]:
+    """Envios da própria pessoa com fatos de férias, do mais recente ao mais antigo."""
+    return [e for e in listar() if e.enviado_por == persona_id and e.fatos_ferias
+            and e.status == "ready" and e.aprovacao != "recusado"]
+
+
 def quem_aprova(envio: Envio) -> str:
     setores_ = list(dict.fromkeys(s for s in (envio.setor_enviante, envio.setor_dono) if s))
     return "gestor ou sênior da " + " ou da ".join(setores_)
@@ -328,6 +347,7 @@ def _aplicar_triagem(envio: Envio, triagem) -> None:
     envio.setor_dono, envio.confianca_setor = d["sigla"], d["confianca"]
     envio.confianca, envio.motivos, envio.resumo = c.confianca, list(c.motivos), c.resumo
     envio.revisao_humana = triagem.revisao_humana
+    envio.fatos_ferias = triagem.fatos_ferias
     if envio.junior or envio.revisao_humana:
         envio.aprovacao = "pendente"
     else:  # Interna, confiança boa, quem enviou não é júnior: segue a sugestão
@@ -478,7 +498,7 @@ if __name__ == "__main__":
     # Com o papel DONO: cria a tabela e dá ao papel da aplicação só o que ele usa.
     import sys
 
-    from sqlalchemy import text
+    from sqlalchemy import inspect, text
 
     papel = sys.argv[1] if len(sys.argv) > 1 else "raiz_app"
     if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", papel):
@@ -486,6 +506,14 @@ if __name__ == "__main__":
     try:
         engine = criar_engine(url_configurada())
         _meta.create_all(engine)
+        atuais = {c["name"] for c in inspect(engine).get_columns("triagem_documento")}
+        with engine.begin() as c:
+            for coluna in tabela.columns:  # colunas novas em tabela que já existia
+                if coluna.name not in atuais:
+                    tipo = coluna.type.compile(dialect=engine.dialect)
+                    c.execute(text(f'ALTER TABLE triagem_documento ADD COLUMN "{coluna.name}" '
+                                   f"{tipo}"))
+                    print(f"Coluna criada: {coluna.name}")
         if engine.dialect.name == "postgresql":
             with engine.begin() as c:
                 c.execute(text(f"REVOKE ALL ON triagem_documento FROM {papel}"))

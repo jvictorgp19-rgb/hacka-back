@@ -17,6 +17,7 @@ from app.core.limites import checar_taxa
 from app.core.setores import rotulo
 from app.schemas.api import UploadDecision, UploadItem
 from app.services import envios
+from app.services.calculators.ferias import dias_por_faltas
 from app.services.triagem.extracao import ArquivoRecusado, detectar_formato
 
 router = APIRouter()
@@ -30,6 +31,18 @@ def _sem_cache(response: Response) -> None:
 
 def _iso(momento) -> str | None:
     return momento.isoformat().replace("+00:00", "Z") if momento else None
+
+
+def _ferias(envio: envios.Envio, sujeito: Sujeito) -> dict | None:
+    f = envio.fatos_ferias
+    if not f or not envios.ve_dados_pessoais(sujeito.persona, envio):
+        return None
+    faltas = f.get("faltas_injustificadas")
+    return {"faltasInjustificadas": faltas, "origemFaltas": f.get("origem_faltas"),
+            "periodoInicio": f.get("periodo_inicio"), "periodoFim": f.get("periodo_fim"),
+            "admissao": f.get("admissao"), "inicioGozo": f.get("inicio_gozo"),
+            "diasDeFerias": dias_por_faltas(faltas) if faltas is not None else None,
+            "paginas": f.get("paginas", [])}
 
 
 def _item(envio: envios.Envio, sujeito: Sujeito) -> UploadItem:
@@ -48,7 +61,7 @@ def _item(envio: envios.Envio, sujeito: Sujeito) -> UploadItem:
         nivelFinal=envio.nivel_final, setoresFinais=envio.setores_finais,
         podeDecidir=envios.pode_decidir(sujeito.persona, envio),
         decidedBy=envio.decidido_por, decidedAt=_iso(envio.decidido_em),
-        response=envio.resposta)
+        response=envio.resposta, ferias=_ferias(envio, sujeito))
 
 
 def _receber(arquivo: UploadFile, sujeito: Sujeito) -> envios.Envio:

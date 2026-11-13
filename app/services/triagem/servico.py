@@ -12,12 +12,16 @@ from app.core.setores import rotulo
 from app.services.ingest.header import parse_cabecalho
 from app.services.triagem import departamento, detectores
 from app.services.triagem.extracao import Extracao, extrair, extrair_isolado
+from app.services.triagem.ferias import extrair_fatos
 
 MIN_CARACTERES = 40  # abaixo disso o PDF é imagem (digitalizado): sem OCR, não há o que ler
 FORMATOS_COM_IMAGEM = {"pdf", "docx", "xlsx"}  # texto puro curto é conteúdo, não digitalização
 
 CRITERIO_INTERNO = ("Nada sigiloso encontrado: orienta qualquer empregado (classificação BBTS, "
                     "seção 2). Confira antes de publicar.")
+CRITERIO_FERIAS = ("Faltas, período aquisitivo ou datas de um empregado: dado pessoal "
+                   "(LGPD art. 5º, I). Formulário preenchido é sigiloso da GEPEC "
+                   "(classificação BBTS).")
 CRITERIO_SEM_TEXTO = ("Sem texto para ler (provável digitalização). Tratado como sigiloso do setor "
                       "até alguém conferir: o conteúdo é desconhecido.")
 
@@ -47,6 +51,7 @@ class Triagem:
     revisao_humana: bool
     avisos: list[str] = field(default_factory=list)
     texto_paginas: list[str] = field(default_factory=list)  # só para a ficha da IA; nunca persistir
+    fatos_ferias: dict | None = None  # faltas e datas (sem nome/CPF): ver triagem/ferias.py
 
     def as_dict(self, com_texto: bool = False) -> dict:
         d = asdict(self)
@@ -65,7 +70,7 @@ def sha256_arquivo(caminho: Path) -> str:
 
 def _confianca(achados: list[detectores.Achado], nivel: str, caracteres: int) -> float:
     fortes = {"versao_obsoleta", "credencial", "codigo_fonte", "dado_bancario", "dado_sensivel",
-              "marcacao_sigilo"}
+              "marcacao_sigilo", "registro_ferias"}
     if nivel == "Sigilosa":
         if any(a.tipo in fortes for a in achados):
             return 0.95
@@ -76,8 +81,11 @@ def _confianca(achados: list[detectores.Achado], nivel: str, caracteres: int) ->
 def classificar(extracao: Extracao, nome: str, caminho: Path) -> Triagem:
     texto = extracao.texto
     cab = parse_cabecalho(texto)
+    fatos = extrair_fatos(extracao.paginas)
+    extras = [("GEPEC", departamento.PESO_CODIGO,
+               "Registro de férias preenchido: gestão de pessoas (GEPEC).")] if fatos else []
     sugestao = departamento.sugerir(texto, extracao.formato, cab.codigo, cab.vinculado_a,
-                                    cab.elaborado_por, nome)
+                                    cab.elaborado_por, nome, extras)
     tamanho, sha = caminho.stat().st_size, sha256_arquivo(caminho)
 
     if extracao.caracteres < MIN_CARACTERES and extracao.formato in FORMATOS_COM_IMAGEM:
@@ -90,6 +98,9 @@ def classificar(extracao: Extracao, nome: str, caminho: Path) -> Triagem:
                        sugestao.as_dict(), True, extracao.avisos, extracao.paginas)
 
     achados = detectores.detectar(extracao.paginas, extracao.formato, cab.fase)
+    if fatos:
+        achados.append(detectores.Achado("registro_ferias", "Registro de férias preenchido",
+                                         "Sigilosa", 1, fatos.paginas, CRITERIO_FERIAS))
     sigilosos = [a for a in achados if a.nivel == "Sigilosa"]
     nivel = "Sigilosa" if sigilosos else "Interna"
     if nivel == "Sigilosa":
@@ -105,7 +116,8 @@ def classificar(extracao: Extracao, nome: str, caminho: Path) -> Triagem:
     revisao = nivel == "Sigilosa" or confianca < 0.7 or sugestao.confianca < 0.5
     return Triagem(nome, extracao.formato, tamanho, sha, len(extracao.paginas),
                    extracao.caracteres, "ready", cab.as_dict(), classe, sugestao.as_dict(),
-                   revisao, extracao.avisos, extracao.paginas)
+                   revisao, extracao.avisos, extracao.paginas,
+                   fatos.as_dict() if fatos else None)
 
 
 def triar_arquivo(caminho: Path, nome: str | None = None, isolar: bool = True) -> Triagem:

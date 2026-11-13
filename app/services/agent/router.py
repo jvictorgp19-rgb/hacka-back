@@ -28,9 +28,10 @@ from app.schemas.api import (
 )
 from app.services import audit_log
 from app.services.acervo import NOMES_DOMINIO, Acervo, get_acervo
-from app.services.agent import guards
+from app.services.agent import ferias_envios, guards
 from app.services.agent.handlers import HANDLERS, Parcial
 from app.services.agent.intents import extrair
+from app.services.calculators import ferias
 from app.services.llm.client import get_llm
 from app.services.rag.index import Indice, Trecho
 
@@ -175,6 +176,16 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
                 if parcial.abster_dominio:
                     abstencao = abster(parcial.abster_dominio, parcial.lacuna, parcial.detalhes)
             break
+
+    # 2b. Férias pelos arquivos que a própria pessoa enviou (sem dizer as faltas na pergunta)
+    if (not answer and not bloqueio and acesso.identificado and ferias_envios.casa(p)
+            and acervo.autorizado(ferias.FONTES_TABELAS, acesso)):
+        parcial = ferias_envios.responder(sujeito)
+        answer, bullets, fontes, intent = (parcial.answer, parcial.bullets, parcial.fontes,
+                                           parcial.intent)
+        resultado = "abstencao" if parcial.abster_dominio else "permitido"
+        if parcial.abster_dominio:
+            abstencao = abster(parcial.abster_dominio, parcial.lacuna, parcial.detalhes)
 
     # 3. Regra revogada (vale junto com a calculadora ou sozinha)
     antiga = guards.regra_revogada(p)

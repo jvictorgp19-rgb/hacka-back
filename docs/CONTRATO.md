@@ -88,6 +88,22 @@ Aprovação, conforme docs/CLASSIFICACAO_BBTS.md e LAI art. 27:
   de acesso do nível e dos setores confirmados. Quem não pode ver recebe `404`, para não saber
   que o envio existe.
 
+Férias pelos envios:
+
+- A triagem tira de formulário preenchido (FM_1111-001) e de espelho de ponto (planilha com
+  coluna "Ocorrência") só números e datas: faltas injustificadas, período aquisitivo, admissão e
+  início de gozo. Nome, CPF e matrícula ficam de fora.
+- Arquivo com esses fatos é sugerido como Sigiloso da GEPEC (achado `registro_ferias`).
+- O campo `ferias` do `UploadItem` traz `{faltasInjustificadas, origemFaltas, periodoInicio,
+  periodoFim, admissao, inicioGozo, diasDeFerias, paginas}`.
+- `ferias` só aparece para quem enviou, para os aprovadores do envio e para a GEPEC, mesmo
+  depois da aprovação (LGPD art. 6º, III). Para os demais, o campo vem `null`.
+- No chat, a pergunta "quantos dias de férias eu tenho?", sem número, usa o envio mais recente
+  da própria pessoa. O cálculo segue a TB_1111-001, Tabela 1, e a NG_111, item 4.1.1.
+  A resposta cita o arquivo e avisa quando o envio ainda aguarda aprovação.
+- Sem envio com faltas, o chat explica o que enviar e encaminha à GEPEC.
+- O chat nunca usa o envio de outra pessoa.
+
 Limites:
 
 - até 20 MiB por arquivo (`MAX_UPLOAD_BYTES`) e 10 arquivos por requisição;

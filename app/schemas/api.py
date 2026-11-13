@@ -185,6 +185,17 @@ class SetorSugerido(BaseModel):
     confianca: float
 
 
+class FatosFerias(BaseModel):
+    faltasInjustificadas: int | None = None
+    origemFaltas: Literal["declarado", "contagem"] | None = None
+    periodoInicio: str | None = None
+    periodoFim: str | None = None
+    admissao: str | None = None
+    inicioGozo: str | None = None
+    diasDeFerias: int | None = None  # TB_1111-001, Tabela 1
+    paginas: list[int]
+
+
 class UploadItem(BaseModel):
     """Os 5 primeiros campos são o uploadSchema do front; os demais detalham a triagem."""
 
@@ -208,6 +219,7 @@ class UploadItem(BaseModel):
     decidedBy: str | None = None
     decidedAt: str | None = None
     response: str | None = None
+    ferias: FatosFerias | None = None  # só para quem enviou, os aprovadores e a GEPEC
 
 
 class UploadDecision(_Entrada):
