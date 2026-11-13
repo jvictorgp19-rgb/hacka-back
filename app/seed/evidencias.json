@@ -1,0 +1,258 @@
+{
+  "_origem": "Curadoria a partir do hacka-front (src/services/demo/evidence.json e simulation-sources.json). Trechos conferidos no acervo; página achada no PDF; área em sigla BBTS (docs/CLASSIFICACAO_BBTS.md).",
+  "fatos": [
+    {
+      "id": "locacao-vistoria",
+      "title": "Vistoria do espaço",
+      "text": "Realize a vistoria antes da entrega do coworking.",
+      "tema": "locacao",
+      "area": "GESUC",
+      "perspective": "deadlines",
+      "date": "2026-11-25",
+      "citation": {
+        "codigo": "CTR_2026-012",
+        "versao": "1.0.0",
+        "item": "Anexo, item 5",
+        "trecho": "Condições de entrega: espaço pronto em 30/11/2026; vistoria até 25/11/2026.",
+        "page": 3
+      }
+    },
+    {
+      "id": "inovacao-fiscal",
+      "title": "Consolidação fiscal",
+      "text": "Projetos sem documentação até 31 de março ficam fora do ciclo anual.",
+      "tema": "inovacao",
+      "area": "GEINOV",
+      "perspective": "deadlines",
+      "date": "2027-03-31",
+      "citation": {
+        "codigo": "PX_1130-001",
+        "versao": "1.0.0",
+        "item": "8.6.4",
+        "trecho": "Projetos que não tiverem documentação até 31 de março ficam fora do ciclo do ano.",
+        "page": 3
+      }
+    },
+    {
+      "id": "ferias-pedido",
+      "title": "Solicitação de férias",
+      "text": "Solicite com 45 dias corridos de antecedência.",
+      "tema": "ferias",
+      "area": "GEPEC",
+      "perspective": "deadlines",
+      "citation": {
+        "codigo": "NG_111",
+        "versao": "3.0.0",
+        "item": "4.3.1",
+        "trecho": "A solicitação é formal e feita no Portal Raiz (FM_1111-001) com antecedência mínima de 45 dias corridos do início de gozo.",
+        "page": 2
+      }
+    },
+    {
+      "id": "ferias-equipe",
+      "title": "Limite simultâneo da equipe",
+      "text": "Máximo de 30%, arredondado para baixo; equipes de até 3 têm mínimo de uma pessoa.",
+      "tema": "ferias",
+      "area": "GEPEC",
+      "perspective": "obligations",
+      "citation": {
+        "codigo": "NG_111",
+        "versao": "3.0.0",
+        "item": "4.6.3",
+        "trecho": "No máximo 30% da equipe pode estar de férias ao mesmo tempo, arredondando-se para baixo; em equipes de até 3 empregados, uma pessoa por vez.",
+        "page": 3
+      }
+    },
+    {
+      "id": "ferias-decisao",
+      "title": "Decisão do gestor",
+      "text": "Pedidos precisam de decisão em até 7 dias corridos após o registro.",
+      "tema": "ferias",
+      "area": "GEPEC",
+      "perspective": "risks",
+      "citation": {
+        "codigo": "NG_111",
+        "versao": "3.0.0",
+        "item": "4.5.2",
+        "trecho": "Decisão do gestor imediato: até 7 dias corridos depois do registro da solicitação.",
+        "page": 3
+      }
+    },
+    {
+      "id": "inovacao-gerente",
+      "title": "Alçada de prototipagem",
+      "text": "Até R$ 18.000,00, aprova o gerente do NIN.",
+      "tema": "inovacao",
+      "area": "GEINOV",
+      "perspective": "values",
+      "valueCents": 1800000,
+      "citation": {
+        "codigo": "NT_2026-021",
+        "versao": "1.0.0",
+        "item": "4.2",
+        "trecho": "Gasto de prototipagem por ideia até R$ 18.000,00: gerente do NIN.",
+        "page": 2
+      }
+    },
+    {
+      "id": "inovacao-diretor",
+      "title": "Alçada de diretoria",
+      "text": "De R$ 18.000,01 a R$ 120.000,00, aprova o diretor da DIRTEC.",
+      "tema": "inovacao",
+      "area": "GEINOV",
+      "perspective": "values",
+      "valueCents": 12000000,
+      "citation": {
+        "codigo": "NT_2026-021",
+        "versao": "1.0.0",
+        "item": "4.3",
+        "trecho": "Gasto entre R$ 18.000,01 e R$ 120.000,00: diretor da DIRTEC.",
+        "page": 2
+      }
+    },
+    {
+      "id": "inovacao-ideias",
+      "title": "Limite de ideias",
+      "text": "Cada proponente pode inscrever até duas ideias por edição.",
+      "tema": "inovacao",
+      "area": "GEINOV",
+      "perspective": "obligations",
+      "citation": {
+        "codigo": "RG_1100",
+        "versao": "2.0.0",
+        "item": "4.1.2",
+        "trecho": "Cada proponente pode inscrever até 2 ideias por edição.",
+        "page": 2
+      }
+    },
+    {
+      "id": "inovacao-elegivel",
+      "title": "Elegibilidade",
+      "text": "É necessário ter pelo menos 6 meses de casa na abertura das inscrições.",
+      "tema": "inovacao",
+      "area": "GEINOV",
+      "perspective": "obligations",
+      "citation": {
+        "codigo": "RG_1100",
+        "versao": "2.0.0",
+        "item": "4.1.1",
+        "trecho": "Podem participar empregados com, no mínimo, 6 meses de casa na data de abertura das inscrições.",
+        "page": 2
+      }
+    },
+    {
+      "id": "inovacao-rateio",
+      "title": "Rateio não definido",
+      "text": "O regulamento não define a divisão do prêmio entre integrantes. Consulte o NIN.",
+      "tema": "inovacao",
+      "area": "GEINOV",
+      "perspective": "risks",
+      "citation": {
+        "codigo": "RG_1100",
+        "versao": "2.0.0",
+        "item": "FAQ — prêmio em equipe",
+        "trecho": "Quem recebe o prêmio em dinheiro de uma ideia de equipe? O regulamento fixa os valores por ideia e por colocação. Ele não trata da divisão entre integrantes.",
+        "page": 9
+      }
+    },
+    {
+      "id": "locacao-prorroga",
+      "title": "Prorrogação do coworking",
+      "text": "Formalize o pedido até 30/03/2027, 30 dias antes do término contratual.",
+      "tema": "locacao",
+      "area": "GESUC",
+      "perspective": "deadlines",
+      "date": "2027-03-30",
+      "citation": {
+        "codigo": "CTR_2026-012",
+        "versao": "1.0.0",
+        "item": "Cláusula terceira",
+        "trecho": "O pedido de prorrogação é feito pela LOCATÁRIA até 30 dias corridos antes do fim da vigência.",
+        "page": 1
+      }
+    },
+    {
+      "id": "locacao-multa",
+      "title": "Isenção de multa",
+      "text": "A partir do 91º dia de vigência não há multa de rescisão; permanece o aviso prévio.",
+      "tema": "locacao",
+      "area": "GESUC",
+      "perspective": "values",
+      "date": "2027-02-28",
+      "valueCents": 0,
+      "citation": {
+        "codigo": "CTR_2026-012",
+        "versao": "1.0.0",
+        "item": "Cláusula décima terceira",
+        "trecho": "Se a rescisão ocorrer até o 90º dia de vigência, aplica-se multa equivalente a um aluguel mensal; a partir do 91º dia, não há multa.",
+        "page": 2
+      }
+    },
+    {
+      "id": "ferias-pagamento",
+      "title": "Antecipação do pagamento",
+      "text": "Pagamento até D-3, antecipado para o dia útil anterior em fim de semana ou feriado.",
+      "tema": "ferias",
+      "area": "GEPEC",
+      "perspective": "deadlines",
+      "citation": {
+        "codigo": "NG_111",
+        "versao": "3.0.0",
+        "item": "4.5.5",
+        "trecho": "Pagamento: até 3 dias corridos antes; se esse dia for sábado, domingo ou feriado, o pagamento é antecipado para o dia útil anterior.",
+        "page": 3
+      }
+    }
+  ],
+  "fontes_simulacao": [
+    {
+      "codigo": "NG_111",
+      "versao": "3.0.0",
+      "item": "4.5.3",
+      "trecho": "Emissão do aviso pela GGC: até 35 dias antes.",
+      "page": 3
+    },
+    {
+      "codigo": "NG_111",
+      "versao": "3.0.0",
+      "item": "4.5.4",
+      "trecho": "Assinatura do aviso pelo empregado: até 5 dias úteis depois do recebimento e nunca depois de 30 dias antes do início de gozo.",
+      "page": 3
+    },
+    {
+      "codigo": "NG_111",
+      "versao": "3.0.0",
+      "item": "4.6.2",
+      "trecho": "A ausência de decisão em 7 dias não equivale a aprovação: a solicitação é escalada ao diretor da área, que decide em até 3 dias úteis.",
+      "page": 3
+    },
+    {
+      "codigo": "NG_111",
+      "versao": "3.0.0",
+      "item": "4.9.1",
+      "trecho": "Por iniciativa do empregado, com anuência do gestor, a alteração ou o cancelamento pode ser feito até 20 dias antes do início de gozo, uma única vez por período.",
+      "page": 4
+    },
+    {
+      "codigo": "PX_1111-001",
+      "versao": "1.0.0",
+      "item": "6.3",
+      "trecho": "Retorno registrado pelo gestor no primeiro dia útil após o gozo.",
+      "page": 2
+    },
+    {
+      "codigo": "TB_1111-001",
+      "versao": "1.0.0",
+      "item": "Tabela 1",
+      "trecho": "Faltas injustificadas Dias corridos de férias 0a5 30 6 a 14 24 15 a 23 18 24 a 32 12 Mais de 32 Perda do direito no período",
+      "page": 1
+    },
+    {
+      "codigo": "CTR_2026-012",
+      "versao": "1.0.0",
+      "item": "Anexo, item 11",
+      "trecho": "interrupção de internet (LOCADORA, desconto de 1/30 do aluguel por dia de interrupção superior a 4 horas)",
+      "page": 3
+    }
+  ]
+}
