@@ -34,8 +34,47 @@ def zerar_taxas() -> None:
     _janelas.clear()
 
 
+MARGEM_MULTIPART = 64 * 1024  # cabeçalhos das partes do multipart
+ROTAS_DE_ENVIO = {("POST", "/document-jobs")}
+
+
+def limite_do_corpo(metodo: str, caminho: str) -> int:
+    """16 KiB em geral. Só a rota de envio de arquivo aceita até MAX_UPLOAD_BYTES."""
+    cfg = get_settings()
+    if (metodo, caminho.rstrip("/")) in ROTAS_DE_ENVIO:
+        return cfg.max_upload_bytes + MARGEM_MULTIPART
+    return cfg.max_body_bytes
+
+
+class OrigemConfiavel:
+    """Middleware ASGI contra CSRF.
+
+    O front manda cookie (credentials: include). Um POST de outro site levaria esse cookie. Por
+    isso, requisição que altera estado e traz Origin só passa se a origem estiver em
+    CORS_ORIGINS. Cliente fora do navegador (curl, testes) não manda Origin e segue normal.
+    """
+
+    METODOS = {"POST", "PUT", "PATCH", "DELETE"}
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["method"] in self.METODOS:
+            origem = dict(scope.get("headers") or []).get(b"origin")
+            if origem is not None and (origem.decode("latin-1").rstrip("/")
+                                       not in get_settings().origens_cors):
+                corpo = b'{"detail":"Origem nao permitida."}'
+                await send({"type": "http.response.start", "status": 403,
+                            "headers": [(b"content-type", b"application/json"),
+                                        (b"content-length", str(len(corpo)).encode())]})
+                await send({"type": "http.response.body", "body": corpo})
+                return
+        await self.app(scope, receive, send)
+
+
 class LimiteDeCorpo:
-    """Middleware ASGI: recusa corpo maior que MAX_BODY_BYTES, contando os bytes na leitura."""
+    """Middleware ASGI: recusa corpo acima do limite da rota, contando os bytes na leitura."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -44,7 +83,7 @@ class LimiteDeCorpo:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        limite = get_settings().max_body_bytes
+        limite = limite_do_corpo(scope["method"], scope["path"])
         cabecalhos = dict(scope.get("headers") or [])
         declarado = cabecalhos.get(b"content-length", b"0")
         if declarado.isdigit() and int(declarado) > limite:

@@ -6,10 +6,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import envios as rotas_envios
 from app.api.routes.contrato import router
 from app.core.config import get_settings
-from app.core.limites import LimiteDeCorpo
-from app.services import audit_log, persistencia
+from app.core.limites import LimiteDeCorpo, OrigemConfiavel
+from app.services import audit_log, envios, persistencia
 from app.services.acervo import get_acervo
 from app.services.agent.router import get_indice
 from app.services.grafo import get_grafo
@@ -26,6 +27,7 @@ async def lifespan(_: FastAPI):
     grafo = get_grafo()
     banco = audit_log.preparar()  # DATABASE_URL insegura impede o startup
     persistencia.sincronizar_em_segundo_plano(acervo, grafo)  # espelho no banco
+    envios.restaurar_em_segundo_plano()  # envios e aprovações sobrevivem ao restart
     for item in acervo.quarentena:
         log.warning("Documento em quarentena: %s (%s)", item["documento"], item["motivo"])
     log.info("Acervo: %d documentos, %d trechos. LLM %s. AUTH_MODE=%s. Auditoria: %s.",
@@ -37,6 +39,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        envios.encerrar()
         audit_log.encerrar()
 
 
@@ -45,14 +48,16 @@ app = FastAPI(title="Raiz IQ API", version="0.2.0", lifespan=lifespan,
               docs_url="/swagger", redoc_url=None)
 
 app.add_middleware(LimiteDeCorpo)
+app.add_middleware(OrigemConfiavel)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().origens_cors,
-    allow_credentials=False,
+    allow_credentials=True,  # o front manda credentials: include; origens são exatas
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Persona-Id"],
 )
 app.include_router(router)
+app.include_router(rotas_envios.router)
 
 
 @app.get("/health")

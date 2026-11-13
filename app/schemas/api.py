@@ -159,3 +159,60 @@ class GrafoAresta(BaseModel):
 class GrafoResponse(BaseModel):
     nos: list[GrafoNo]
     arestas: list[GrafoAresta]
+
+
+# ---------- /document-jobs (hacka-front: uploadSchema) ----------
+class MotivoTriagem(BaseModel):
+    tipo: str
+    rotulo: str
+    nivel: str
+    ocorrencias: int
+    paginas: list[int]
+    criterio: str
+
+
+class ClassificacaoSugerida(BaseModel):
+    nivel: Literal["Interna", "Sigilosa"]
+    setores: list[str]
+    confianca: float
+    resumo: str
+    motivos: list[MotivoTriagem]
+
+
+class SetorSugerido(BaseModel):
+    sigla: str
+    nome: str
+    confianca: float
+
+
+class UploadItem(BaseModel):
+    """Os 5 primeiros campos são o uploadSchema do front; os demais detalham a triagem."""
+
+    id: str
+    name: str
+    size: int
+    status: Literal["waiting", "processing", "ready", "failed", "not_extracted"]
+    message: str
+    createdAt: str
+    sha256: str | None = None
+    formato: str | None = None
+    paginas: int | None = None
+    classificacao: ClassificacaoSugerida | None = None
+    departamento: SetorSugerido | None = None
+    revisaoHumana: bool
+    aprovacao: Literal["pendente", "aprovado", "recusado", "dispensado"] | None = None
+    aprovadores: str | None = None
+    nivelFinal: Literal["Interna", "Sigilosa"] | None = None
+    setoresFinais: list[str]
+    podeDecidir: bool
+    decidedBy: str | None = None
+    decidedAt: str | None = None
+    response: str | None = None
+
+
+class UploadDecision(_Entrada):
+    status: Literal["approved", "rejected"]
+    response: str = Field(default="", max_length=500)
+    persona: str | None = Field(default=None, max_length=40)
+    nivel: Literal["Interna", "Sigilosa"] | None = None
+    setores: list[str] | None = Field(default=None, max_length=10)

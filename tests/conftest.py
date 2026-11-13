@@ -8,6 +8,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{tempfile.mkdtemp()}/teste.db"
 for _var in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "DEMO_DEFAULT_PERSONA"):
     os.environ[_var] = ""
 os.environ["AUTH_MODE"] = "demo"
+os.environ["TRIAGEM_ISOLAR"] = "false"  # o processo isolado tem teste próprio (test_triagem)
 
 from fastapi.testclient import TestClient  # noqa: E402
 

@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     rate_reports_per_min: int = 3
     rate_grafo_per_min: int = 30
 
+    # Envio de arquivos (/document-jobs). O front manda um arquivo por requisição.
+    max_upload_bytes: int = 20 * 1024 * 1024  # por arquivo, igual ao front
+    max_upload_files: int = 10
+    rate_upload_per_min: int = 20
+    triagem_isolar: bool = True  # parser em processo separado; False só em teste
+    triagem_workers: int = 2
+    triagem_fila_max: int = 20
+
     @property
     def origens_cors(self) -> list[str]:
         origens = [o.strip().rstrip("/") for o in self.cors_origins.split(",") if o.strip()]

@@ -48,6 +48,8 @@ curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
 | `POST /reports` · `GET /reports/pptx` | Deck executivo em JSON ou `.pptx`, com citações nas notas |
 | `GET /ingest?hoje=` | Auditoria do acervo: anacronismos, referências ausentes, conflito de vigência |
 | `GET /grafo?tema=` | Mapa do acervo: documentos, versões e relações no nível de quem consulta |
+| `POST /document-jobs` · `GET /document-jobs[/{id}]` | Envio de arquivo: triagem (sigilo + setor dono) em segundo plano |
+| `POST /document-jobs/{id}/decision` | Aprovador do setor confirma, corrige ou recusa a classificação |
 
 Formatos, identidade, limites e ajustes pedidos ao front: [docs/CONTRATO.md](docs/CONTRATO.md).
 
@@ -247,6 +249,12 @@ A triagem é só uma sugestão. Quem confirma é o aprovador do setor (LAI art. 
 hostil é recusado: assinatura falsa, PDF criptografado e bomba de ZIP. A leitura roda em
 processo separado, com tempo limite. Sobre o acervo do desafio, a triagem reproduz a
 classificação BBTS nos 13 PDFs (`tests/test_triagem.py`).
+
+Pelo site, o mesmo fluxo roda em `POST /document-jobs`. O envio de júnior, ou o envio com
+sugestão sigilosa, espera a aprovação de um gestor ou sênior do setor. Regras em
+[docs/CONTRATO.md](docs/CONTRATO.md). A tabela `triagem_documento` é criada uma vez com o
+papel dono: `python -m app.services.envios raiz_app`. O comando dá ao papel da aplicação só
+`SELECT`, `INSERT` e `UPDATE`.
 
 ## Estrutura
 

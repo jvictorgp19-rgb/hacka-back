@@ -18,6 +18,10 @@ Os formatos abaixo espelham os tipos TypeScript do `hacka-front`, branch `lana`
 | `GET /reports/pptx?tema=` | — | arquivo `.pptx` |
 | `GET /ingest?hoje=` | — | `IngestAuditFinding[]` |
 | `GET /grafo?tema=` | `tema` opcional | `{nos[], arestas[]}`: mapa do acervo no nível de quem consulta (extra; ver `docs/METODOLOGIA_GRAFO.md`) |
+| `POST /document-jobs` | multipart, campo `files` (até 10 arquivos; o front manda 1 por vez) | `UploadItem[]` |
+| `GET /document-jobs/{id}` | — | `UploadItem` (404 se o sujeito não pode ver) |
+| `GET /document-jobs?aprovacao=` | `pendente`, `aprovado`, `recusado` ou `dispensado` (opcional) | `UploadItem[]` que o sujeito vê |
+| `POST /document-jobs/{id}/decision` | `{status: approved\|rejected, response, persona, nivel?, setores?}` | `UploadItem` |
 | `GET /health` | — | `{"status": "ok"}` |
 
 `ChatResponse`:
@@ -37,6 +41,63 @@ Os formatos abaixo espelham os tipos TypeScript do `hacka-front`, branch `lana`
 
 `revokedAlert`, `honestAbstention` e `rbacBlock` só aparecem quando se aplicam.
 `costBadge.type` é `deterministic` (calculadora ou trecho citado, sem LLM) ou `rag_llm`.
+
+## Envio de arquivos (`/document-jobs`)
+
+Segue o `uploadSchema` do hacka-front. Os campos `id`, `name`, `size`, `status` e `message`
+vêm sempre preenchidos. Os outros campos detalham a triagem, e o front pode ignorá-los.
+
+```json
+{
+  "id": "9f2c…", "name": "servico.py", "size": 84, "status": "ready",
+  "message": "Sugestão: Sigilosa, setor dono GEINOV; acesso: GEINOV. Sigiloso: código-fonte. Aguarda aprovação (envio de desenvolvedor júnior): gestor ou sênior da GEINOV.",
+  "createdAt": "2026-11-12T13:00:00Z", "sha256": "…", "formato": "codigo", "paginas": 1,
+  "classificacao": {"nivel": "Sigilosa", "setores": ["GEINOV"], "confianca": 0.95,
+                    "resumo": "…", "motivos": [{"tipo": "codigo_fonte", "rotulo": "Código-fonte",
+                    "nivel": "Sigilosa", "ocorrencias": 6, "paginas": [1], "criterio": "…"}]},
+  "departamento": {"sigla": "GEINOV", "nome": "…", "confianca": 0.94},
+  "revisaoHumana": true, "aprovacao": "pendente", "aprovadores": "gestor ou sênior da GEINOV",
+  "nivelFinal": null, "setoresFinais": [], "podeDecidir": false,
+  "decidedBy": null, "decidedAt": null, "response": null
+}
+```
+
+Ciclo do envio:
+
+1. O `POST` confere identidade, tamanho e assinatura do arquivo e responde na hora.
+   - Se o arquivo passa, o status é `processing`.
+   - Se não passa, o status é `failed` e `message` diz o motivo.
+2. A triagem roda em segundo plano, num processo separado com tempo limite.
+3. O `GET /document-jobs/{id}` traz o resultado, com status `ready`, `not_extracted` ou `failed`.
+4. O arquivo é apagado logo após a triagem.
+5. O banco (`triagem_documento`) guarda só nome, tamanho, hash, sugestão e decisão. Ele nunca
+   guarda o texto nem os valores encontrados (LGPD art. 6º, III, e art. 46).
+
+Aprovação, conforme docs/CLASSIFICACAO_BBTS.md e LAI art. 27:
+
+- **Quando é exigida.** Em todo envio de desenvolvedor júnior. Também quando a sugestão pede
+  revisão humana: sigilosa, conteúdo não extraído ou confiança baixa. Nos demais casos,
+  `aprovacao` é `dispensado`.
+- **Quem aprova.** Gestor ou sênior do setor de quem enviou, ou do setor dono. Também a curadoria
+  do setor dono e o diretor da diretoria do setor dono. Quem enviou nunca aprova o próprio envio
+  (`403`).
+- **O que o aprovador pode mudar.** Ele confirma ou corrige `nivel` (`Interna` ou `Sigilosa`) e
+  `setores`, que são siglas BBTS; o primeiro setor da lista é o dono. Ele também pode recusar o
+  envio.
+- **Quem vê.** Antes da decisão, só quem enviou e os aprovadores. Depois da decisão, vale a regra
+  de acesso do nível e dos setores confirmados. Quem não pode ver recebe `404`, para não saber
+  que o envio existe.
+
+Limites:
+
+- até 20 MiB por arquivo (`MAX_UPLOAD_BYTES`) e 10 arquivos por requisição;
+- 20 envios por minuto (`RATE_UPLOAD_PER_MIN`);
+- fila de triagem com até 20 arquivos (`TRIAGEM_FILA_MAX`); acima disso, o item volta como `failed`.
+
+O limite de 16 KiB do corpo vale para todas as outras rotas.
+
+`POST` vindo de navegador com `Origin` fora de `CORS_ORIGINS` recebe `403` (proteção contra CSRF,
+porque o front manda `credentials: include`).
 
 ## Identidade: como o back sabe quem pergunta
 
@@ -130,7 +191,8 @@ os trechos enviados; sem citação válida, o back devolve os trechos em modo ex
 - `/access` é um stub de leitura com um pedido sintético. Criar pedido, decidir e emitir resposta
   curada é escopo do Victor.
 - `/ingest` só audita. A ingestão é offline (`python -m app.services.ingest.pipeline`), a partir
-  do manifesto. Upload e conectores são escopo do João.
+  do manifesto. O upload (`/document-jobs`) faz triagem e aprovação; o arquivo aprovado
+  ainda não entra no índice do chat. Conectores são escopo do João.
 - Busca só lexical (BM25). Embeddings ficaram fora: enviar o acervo a um serviço de embeddings
   exige decidir antes onde a VM fica (LGPD art. 33).
 - O Neon (PostgreSQL) guarda a auditoria e um espelho de todo o conteúdo do sistema
