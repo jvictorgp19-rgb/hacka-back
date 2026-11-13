@@ -29,9 +29,16 @@ def _sem_limite_entre_testes():
 
 @pytest.fixture
 def perguntar(client):
+    """Motor do chat (o mesmo de POST /conversations/messages), com a resposta completa:
+    rbacBlock, revokedAlert e honestAbstention aparecem como o agente decidiu."""
+    from app.core.auth import ANONIMO, Sujeito
+    from app.core.personas import PERSONAS
+    from app.schemas.api import ChatRequest
+    from app.services.agent.router import responder
+
     def _perguntar(mensagem: str, persona: str | None = "ana", tema: str = "ferias") -> dict:
-        r = client.post("/chat", json={"message": mensagem, "tema": tema, "perfil": "",
-                                       "personaId": persona})
-        assert r.status_code == 200, r.text
-        return r.json()
+        p = PERSONAS.get(persona or "")
+        sujeito = Sujeito(p, p.nivel) if p else ANONIMO
+        resposta = responder(ChatRequest(message=mensagem, tema=tema), sujeito)
+        return resposta.model_dump(exclude_none=True)
     return _perguntar

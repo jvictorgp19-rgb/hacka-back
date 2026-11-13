@@ -1,5 +1,7 @@
 # Back-end Zero Click / Raiz IQ — base mínima + escopo Thiago
 
+> **Histórico.** Plano de 12/11/2026, feito para o contrato da branch `lana` do front. Esse contrato saiu (rotas `/chat`, `/docs`, `/radar`, `/access`, `/reports`, `/ingest`, `/grafo`). O contrato atual está em `docs/CONTRATO.md` e o histórico em `docs/HISTORICO_COMMITS.md`.
+
 ## Context
 O back-end (`hacka-back`, FastAPI) precisa servir o front que já existe em `jvictorgp19-rgb/hacka-front`, branch `lana`. Hoje o front roda só com fallback local: `src/lib/api.ts` usa `fetchWithFallback`, e `src/app/api/chat/route.ts` tem regras fixas no código. O back deve cumprir o **mesmo contrato JSON** e trocar o fallback por motor real: calculadoras determinísticas, RAG com filtro de permissão, LLM local na VM e gerador de PPT.
 

@@ -1,10 +1,9 @@
 """Identidade do chamador.
 
 AUTH_MODE=demo  -> simulação: aceita personaId (body, header X-Persona-Id, query personaId ou
-                   persona, ou o cookie raiz_persona gravado por POST /identity).
+                   persona) ou DEMO_DEFAULT_PERSONA.
                    Sem persona válida, o sujeito é anônimo e vê só o nível Pública.
-AUTH_MODE=token -> exige Authorization: Bearer <persona>.<exp>.<assinatura HMAC-SHA256>, ou o
-                   mesmo token no cookie HttpOnly raiz_sessao (gravado por POST /identity).
+AUTH_MODE=token -> exige Authorization: Bearer <persona>.<exp>.<assinatura HMAC-SHA256>.
 
 Emitir token:  python -m app.core.auth <personaId>
 """
@@ -22,8 +21,6 @@ from app.core.config import get_settings
 from app.core.personas import PERSONAS, Persona
 
 _ERRO_TOKEN = "Token ausente ou inválido."
-COOKIE_DEMO = "raiz_persona"
-COOKIE_SESSAO = "raiz_sessao"
 
 
 @dataclass(frozen=True)
@@ -82,8 +79,6 @@ def _sujeito_do_token(request: Request) -> Sujeito:
     cabecalho = request.headers.get("authorization", "")
     if cabecalho.lower().startswith("bearer "):
         return validar_token(cabecalho[7:])
-    if request.cookies.get(COOKIE_SESSAO):
-        return validar_token(request.cookies[COOKIE_SESSAO])
     raise HTTPException(401, _ERRO_TOKEN)
 
 
@@ -101,7 +96,6 @@ def resolver_sujeito(request: Request, persona_body: str | None = None) -> Sujei
         or request.headers.get("x-persona-id")
         or request.query_params.get("personaId")
         or request.query_params.get("persona")  # o front manda ?persona= em algumas rotas
-        or request.cookies.get(COOKIE_DEMO)
         or cfg.demo_default_persona
     )
     persona = PERSONAS.get(informado or "")

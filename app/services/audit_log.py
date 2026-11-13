@@ -15,13 +15,12 @@ Revisão de segurança: docs/SEGURANCA_NEON_CODEX.md.
 """
 
 import logging
-import os
 import queue
 import threading
 import time
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from sqlalchemy import (
@@ -32,7 +31,6 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
-    func,
     select,
     text,
 )
@@ -42,7 +40,7 @@ from sqlalchemy.engine import Engine
 
 # A política de conexão fica em app/core/banco.py; os nomes seguem exportados daqui.
 from app.core.banco import criar_engine as _criar_engine
-from app.core.banco import descrever, normalizar_url, papel_valido, url_configurada  # noqa: F401
+from app.core.banco import descrever, normalizar_url, url_configurada  # noqa: F401
 from app.core.banco import producao as _producao
 
 log = logging.getLogger("raiz.auditoria")
@@ -281,38 +279,6 @@ def ultimos(limite: int = 50) -> list[dict]:
     return [dict(linha) for linha in linhas]
 
 
-# Resumo para o painel "uso". Agrega por dia, ação, resultado, intent e nível; nunca por pessoa
-# (LGPD art. 6º, III). A view roda com o privilégio do dono: o papel da aplicação lê o resumo
-# sem ter SELECT na tabela de auditoria.
-VIEW_RESUMO = """
-CREATE OR REPLACE VIEW auditoria_resumo AS
-SELECT (momento AT TIME ZONE 'America/Sao_Paulo')::date AS dia, acao, resultado, intent, nivel,
-       count(*) AS total
-FROM auditoria
-GROUP BY 1, 2, 3, 4, 5
-"""
-
-
-def resumo(dias: int = 30) -> list[dict]:
-    """Eventos agregados dos últimos `dias`. Sem a coluna sujeito."""
-    engine = _engine()
-    desde = datetime.now(UTC) - timedelta(days=dias)
-    with engine.connect() as conexao:
-        if engine.dialect.name == "postgresql":
-            linhas = conexao.execute(text(
-                "SELECT dia, acao, resultado, intent, nivel, total FROM auditoria_resumo "
-                "WHERE dia >= :desde"), {"desde": desde.date()}).mappings().all()
-        else:  # SQLite (testes e offline): agrega direto da tabela
-            dia = func.date(auditoria.c.momento).label("dia")
-            linhas = conexao.execute(
-                select(dia, auditoria.c.acao, auditoria.c.resultado, auditoria.c.intent,
-                       auditoria.c.nivel, func.count().label("total"))
-                .where(auditoria.c.momento >= desde)
-                .group_by(dia, auditoria.c.acao, auditoria.c.resultado, auditoria.c.intent,
-                          auditoria.c.nivel)).mappings().all()
-    return [{**dict(linha), "dia": str(linha["dia"])} for linha in linhas]
-
-
 if __name__ == "__main__":
     # Cria a tabela. Rode uma vez com o papel DONO do banco; a aplicação roda com papel restrito.
     try:
@@ -323,13 +289,12 @@ if __name__ == "__main__":
         engine_dono = _criar_engine(url_dono)
         _meta.create_all(engine_dono)
         if engine_dono.dialect.name == "postgresql":
-            papel = papel_valido(os.environ.get("RAIZ_APP_ROLE", "raiz_app"))
+            # A view do painel de gráficos saiu junto com a rota: o papel da aplicação perde o
+            # SELECT que tinha nela (LGPD art. 46, menor privilégio).
             with engine_dono.begin() as c:
-                c.execute(text(VIEW_RESUMO))
-                c.execute(text(f"REVOKE ALL ON auditoria_resumo FROM {papel}"))
-                c.execute(text(f"GRANT SELECT ON auditoria_resumo TO {papel}"))
+                c.execute(text("DROP VIEW IF EXISTS auditoria_resumo"))
     except SystemExit:
         raise
     except Exception as erro:  # noqa: BLE001 - a mensagem do driver pode trazer host e usuário
         raise SystemExit(f"Falha ao criar a tabela: {type(erro).__name__}.") from None
-    print(f"Tabela 'auditoria' e view 'auditoria_resumo' prontas em {descrever(url_dono)}.")
+    print(f"Tabela 'auditoria' pronta em {descrever(url_dono)}.")

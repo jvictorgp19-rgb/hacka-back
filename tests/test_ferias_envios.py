@@ -15,7 +15,6 @@ PERGUNTA = "Quantos dias de férias eu tenho?"
 @pytest.fixture(autouse=True)
 def _limpo(client):
     envios.limpar()
-    client.cookies.clear()
     yield
     envios.esperar()
 
@@ -71,19 +70,13 @@ def test_chat_calcula_os_dias_pelo_formulario_enviado(client, perguntar):
     assert {c["codigo"] for c in r["citations"]} >= {"TB_1111-001", "NG_111"}
 
 
-def test_dados_de_ferias_so_para_a_pessoa_aprovador_e_gepec(client):
+def test_dados_de_ferias_so_para_a_pessoa_e_a_aprovadora(client):
     item = _enviar(client, "bruno", "minhas_ferias.txt", FORM.encode())
     ver = lambda p: client.get(f"/document-jobs/{item['id']}",  # noqa: E731
                                headers={"X-Persona-Id": p})
     assert ver("curadora_ggc").json()["ferias"]["diasDeFerias"] == 24  # aprovadora (GEPEC)
     assert ver("helena").status_code == 404  # tech lead do júnior: dado pessoal não é do GEINOV
     assert ver("fernanda").status_code == 404
-    r = client.post(f"/document-jobs/{item['id']}/decision",
-                    json={"status": "approved", "nivel": "Interna", "setores": ["GEPEC"]},
-                    headers={"X-Persona-Id": "curadora_ggc"})
-    assert r.status_code == 200
-    assert ver("marina").status_code == 200 and ver("marina").json()["ferias"] is None
-    assert ver("curadora_ggc").json()["ferias"] is not None  # GEPEC habilitada
 
 
 def test_formulario_de_outro_empregado_nao_entra_no_calculo(client, perguntar):
@@ -122,3 +115,43 @@ def test_anonimo_nao_recebe_dado_de_envio(client, perguntar):
     _enviar(client, "bruno", "minhas_ferias.txt", FORM.encode())
     r = perguntar(PERGUNTA, persona=None)
     assert "8 faltas" not in r["answer"]
+
+
+@pytest.mark.parametrize("pergunta", ["Quantos dias tenho de férias?",
+                                      "Quantos dias me restam de férias?"])
+def test_outras_formas_de_perguntar_o_proprio_saldo(client, perguntar, pergunta):
+    _enviar(client, "bruno", "minhas_ferias.txt", FORM.encode())
+    r = perguntar(pergunta, persona="bruno")
+    assert "8 faltas injustificadas" in r["answer"] and "24 dias corridos" in r["answer"]
+
+
+def test_encarregado_elimina_os_dados_pessoais_a_pedido(client):
+    from sqlalchemy import select
+
+    item = _enviar(client, "bruno", "minhas_ferias.txt", FORM.encode())
+    assert envios.eliminar_a_pedido(item["id"]) == "eliminado"
+    assert envios.esperar()
+    depois = client.get(f"/document-jobs/{item['id']}", headers={"X-Persona-Id": "bruno"}).json()
+    assert depois["name"] == envios.EXPURGADO and depois["ferias"] is None
+
+    envios.limpar()  # como o script: só o banco
+    assert envios.eliminar_a_pedido(item["id"]) == "eliminado"
+    with envios._engine().connect() as c:
+        linha = c.execute(select(envios.tabela).where(envios.tabela.c.id == item["id"])).one()
+    assert linha.nome_arquivo == envios.EXPURGADO and linha.fatos_ferias is None
+    assert linha.sha256 and linha.nivel_sugerido == "Sigilosa"  # metadados sem dado pessoal
+    assert envios.eliminar_a_pedido("0" * 32) == "nao_encontrado"
+
+
+@pytest.mark.parametrize("pergunta", ["Quantos dias de antecedência para pedir férias?",
+                                      "Quantos dias de antecedência eu tenho para pedir férias?"])
+def test_antecedencia_e_regra_da_norma_nao_saldo_de_envio(perguntar, pergunta):
+    r = perguntar(pergunta, tema="todos")
+    assert "45 dias" in r["answer"] and "faltas injustificadas" not in r["answer"]
+    assert "NG_111" in {c["codigo"] for c in r["citations"]}
+
+
+def test_prazo_com_dias_antes_nao_vira_saldo_de_envio(client, perguntar):
+    _enviar(client, "bruno", "minhas_ferias.txt", FORM.encode())
+    r = perguntar("Com quantos dias antes eu tenho que pedir férias?", persona="bruno")
+    assert "faltas injustificadas" not in r["answer"] and "minhas_ferias.txt" not in str(r)

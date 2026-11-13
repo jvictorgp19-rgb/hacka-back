@@ -61,7 +61,7 @@ def test_relacoes_curado_personas_e_pedidos(client):
     _sincronizado()
     assert _contar(p.relacao) == len(get_grafo().relacoes())
     assert _contar(p.persona) == len(PERSONAS)
-    assert _linha(p.pedido_acesso, p.pedido_acesso.c.id == "REQ-2026-089")["status"] == "Pendente"
+    assert _linha(p.pedido_acesso, p.pedido_acesso.c.id == "REQ-2026-089")["status"] == "pending"
     assert _contar(p.curado) >= 6
 
 

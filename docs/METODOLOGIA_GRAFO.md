@@ -1,24 +1,31 @@
-# Metodologia: grafo do acervo
+# Metodologia: relações do acervo (grafo)
 
-Este documento explica como o grafo do acervo é montado e como cada pessoa recebe a sua parte.
-Ele também registra o caminho que os dados percorrem antes de chegar ao grafo, porque é o mesmo
-caminho que alimenta o chat.
+Este documento explica como as relações entre os documentos do acervo são montadas e para onde
+elas vão. Ele também registra o caminho que os dados percorrem antes, porque é o mesmo caminho
+que alimenta o chat.
 
-- Código: `app/services/grafo.py`. Rota: `GET /grafo`. Testes: `tests/test_grafo.py`.
+- Código: `app/services/grafo.py`. Testes: `tests/test_grafo.py`.
+- Destino: o espelho no Neon (`app/services/persistencia.py`, tabela `relacoes`), com o nível do
+  documento de origem em cada linha.
 - Revisão de segurança feita antes do código: `docs/SEGURANCA_GRAFO_CODEX.md`.
-- Corresponde ao "Mapa do acervo" da PROPOSTA (seção 4.2).
+
+> **Histórico.** Até o commit `3ddaeda` havia a rota `GET /grafo`, com uma projeção por nível de
+> acesso e um gerador de diagrama Mermaid. O hacka-front não tem tela de mapa do acervo, então a
+> rota, a projeção e o gerador saíram (ver `docs/HISTORICO_COMMITS.md`). As seções 4, 6 e 7
+> registram como era, para quem quiser trazer a tela de volta.
 
 ## O que o grafo é, e o que ele não é
 
-O grafo mostra os documentos do acervo, as versões de cada um e as relações entre eles: quem
+O grafo liga os documentos do acervo, as versões de cada um e as relações entre eles: quem
 substitui quem, quem está vinculado a quem e quem cita quem.
 
 - **É só leitura.** Ele lê o mesmo Silver que o chat já usa. Nada novo é extraído dos PDFs.
 - **Não muda o chat.** O índice BM25, o roteador de custo e as respostas continuam iguais. O chat
   não consulta o grafo e não busca trechos "por vizinhança".
-- **Não concede acesso.** Cada pessoa recebe uma projeção com o que o nível dela já permite ver.
-  Uma aresta nunca abre um documento.
-- **Não usa LLM.** A construção é determinística: mesma entrada, mesmo grafo. Isso torna o
+- **Não sai para o cliente.** Nenhuma rota da API devolve as relações. Elas vão só para o banco,
+  onde cada linha leva o nível do documento de origem.
+- **Não concede acesso.** Uma relação nunca abre um documento nem muda o nível dele.
+- **Não usa LLM.** A construção é determinística: mesma entrada, mesmas relações. Isso torna o
   resultado auditável, sem custo por chamada e imune a instruções escondidas no texto dos PDFs.
 
 ## 1. Origem dos dados (pipeline Bronze → Silver)
@@ -62,40 +69,35 @@ Para quem precisar explicar a busca do chat, este é o desenho atual:
    os trechos enviados. Sem LLM, ou sem citação válida, o chat devolve os trechos (modo
    extrativo).
 
-## 2. Modelo do grafo
+## 2. Modelo das relações
 
-### Nós
+Cada relação é uma linha `{origem, alvo, tipo, itens, nivel}`:
 
-| Tipo | Id | O que representa |
-|---|---|---|
-| `documento` | `CODIGO@VERSAO` (ex.: `NG_111@3.0.0`) | Uma versão de um documento do acervo |
-| `dominio` | `dominio:SIGLA` (ex.: `dominio:GGC`) | Área dona dos documentos |
-| `referencia` | `ref:CODIGO` (ex.: `ref:NG_012`) | Código citado que não se resolve na visão de quem consulta |
-
-Cada versão é um nó próprio. Duas versões do mesmo código nunca se fundem.
-
-### Arestas
+- `origem`: a versão exata do documento que cita, no formato `CODIGO@VERSAO`
+  (ex.: `NG_111@3.0.0`). Cada versão conta à parte: duas versões do mesmo código nunca se fundem.
+- `alvo`: o código citado (ex.: `NG_012`), ou a versão exata quando a relação é entre versões.
+- `nivel`: o nível do documento de origem. Quem lê o banco filtra por ele.
 
 | Tipo | Direção | Evidência | Regra |
 |---|---|---|---|
 | `substitui` | versão vigente → versão anterior | Manifesto e cabeçalho (`fase`, `vigente`) | Só existe se o código tiver exatamente uma versão vigente |
-| `vinculado_a` | documento → documento citado | Campo "Vinculado a"/"Referência" do cabeçalho | Declarado pelo autor do documento |
-| `referencia` | documento → documento citado | Código encontrado no texto de um trecho | Menção detectada. Guarda os itens onde aparece |
-| `pertence_a` | documento → área dona | Manifesto (`dominio`) | Uma por documento |
+| `vinculado_a` | documento → código citado | Campo "Vinculado a"/"Referência" do cabeçalho | Declarado pelo autor do documento |
+| `referencia` | documento → código citado | Código encontrado no texto de um trecho | Menção detectada. Guarda os itens onde aparece |
 
-Toda aresta guarda em `itens` onde está a evidência: `cabeçalho` ou os itens do documento de
-origem (ex.: `["2.3", "4.3.1", "Anexo E"]`). Quem lê o grafo consegue voltar ao PDF e conferir.
+Toda relação guarda em `itens` onde está a evidência: `cabeçalho` ou os itens do documento de
+origem (ex.: `["2.3", "4.3.1", "Anexo E"]`). Quem lê consegue voltar ao PDF e conferir.
 
 ## 3. Passo a passo da construção
 
-A construção roda uma vez, no startup da API (`Grafo._montar`), sobre o acervo completo. Esse
-grafo completo fica só na memória do servidor e nunca é devolvido inteiro.
+A construção roda uma vez, no startup da API (`Grafo._montar`), sobre o acervo completo. O
+resultado fica na memória do servidor e vai para o banco em segundo plano
+(`persistencia.sincronizar_em_segundo_plano`). Nenhuma rota o devolve.
 
-1. **Indexar as versões.** Cada documento vira um nó `CODIGO@VERSAO`.
+1. **Indexar as versões.** Cada documento ganha o id `CODIGO@VERSAO`.
 2. **Ligar as versões (`substitui`).** Os documentos são agrupados por código. Se houver
    exatamente uma versão vigente, ela aponta para cada versão não vigente de número menor.
    Se houver zero ou duas vigentes, nenhuma aresta é criada: o grafo não inventa sucessão.
-3. **Ler os vínculos declarados (`vinculado_a`).** O campo do cabeçalho só vira aresta se casar
+3. **Ler os vínculos declarados (`vinculado_a`).** O campo do cabeçalho só vira relação se casar
    inteiro com a gramática de código (passo 4) e não apontar para o próprio documento.
 4. **Detectar menções (`referencia`).** Cada trecho, exceto o cabeçalho, passa por uma expressão
    regular de gramática fechada:
@@ -107,15 +109,16 @@ grafo completo fica só na memória do servidor e nunca é devolvido inteiro.
    - Só vira menção um código completo: prefixo conhecido, 3 ou 4 dígitos e sufixo opcional `-000`.
      `XNG_123`, `NG_12` e `NG_1234567` são ignorados.
    - Códigos repetidos no mesmo trecho contam uma vez. No máximo 30 códigos por trecho.
-   - Citar o próprio código não gera aresta.
-   - As menções são somadas por par (origem, código), com até 8 itens de proveniência por aresta.
+   - Citar o próprio código não gera relação.
+   - As menções são somadas por par (origem, código), com até 8 itens de proveniência por relação.
    - Se o mesmo par já existe como `vinculado_a`, a menção é descartada: o vínculo declarado
      no cabeçalho prevalece.
-5. **Limite.** Acima de 5.000 arestas, o startup falha. O grafo não é cortado em silêncio.
+5. **Limite.** Acima de 5.000 relações, o startup falha. Nada é cortado em silêncio.
 
-## 4. Projeção: o que cada pessoa recebe
+## 4. Projeção por nível (removida com a rota `/grafo`)
 
-`Grafo.projetar(nivel, tema)` monta a visão de um nível a partir do grafo completo:
+Enquanto existiu a rota, `Grafo.projetar(nivel, tema)` montava a visão de um nível a partir do
+grafo completo. A regra vale para qualquer tela que volte a mostrar as relações:
 
 1. **Documentos visíveis.** Entram só as versões que o nível pode ver (e do tema pedido, se houver).
 2. **Áreas.** Uma área só aparece se houver documento visível dela. Ana não descobre que a GCO
@@ -129,7 +132,7 @@ grafo completo fica só na memória do servidor e nunca é devolvido inteiro.
    que a pessoa já leu no documento de origem. Sem título, nível ou área.
 6. **Sucessão.** A aresta `substitui` só aparece se as duas versões forem visíveis.
 
-Projeções do acervo sintético hoje:
+Projeções do acervo sintético quando a rota existia:
 
 | Nível | Documentos | Áreas | Referências não resolvidas | Arestas |
 |---|---|---|---|---|
@@ -138,8 +141,8 @@ Projeções do acervo sintético hoje:
 | Restrita | 14 | 3 | 2 | 49 |
 | Sigilosa | 14 | 3 | 2 | 49 |
 
-`NG_010` e `NG_012` são citados pelas normas, mas não estão no acervo recebido. O auditor do
-`/ingest` já os aponta como "Documento Referenciado Ausente".
+`NG_010` e `NG_012` são citados pelas normas, mas não estão no acervo recebido. O auditor
+(`GET /audit/findings`) os aponta como "Documento Referenciado Ausente".
 
 ## 5. Decisões e limites conhecidos
 
@@ -150,55 +153,32 @@ Projeções do acervo sintético hoje:
   afirma que uma norma obriga a outra.
 - **Citação sem código não é detectada.** Um texto como "conforme a norma de férias" não vira
   aresta.
-- **Reclassificar exige reiniciar a API.** Acervo, índice, grafo e projeções ficam em cache no
-  processo e são recarregados juntos. Trocar o manifesto sem reiniciar mantém a política anterior.
-- **O cache das projeções usa a chave (nível, tema).** Hoje o acesso depende só do nível. Se um
-  dia depender de escopo por pessoa (ex.: `cura_dominios`), esse escopo precisa entrar na chave.
+- **Reclassificar exige reiniciar a API.** Acervo, índice e grafo ficam em cache no processo e
+  são recarregados juntos. Trocar o manifesto sem reiniciar mantém a política anterior.
+- **O banco guarda o grafo completo.** Por isso cada relação leva o `nivel` da origem, e a leitura
+  do banco precisa filtrar por ele (LGPD art. 46). O papel da aplicação não lê essa tabela por
+  rota nenhuma.
 - **O Silver não é assinado contra edição local.** Quem consegue editar `data/` já administra o
   servidor. Essa é a mesma premissa do resto do back.
 
 ## 6. Como usar
 
-```bash
-curl -H "X-Persona-Id: ana" "http://localhost:8000/grafo?tema=inovacao"
-```
-
-```json
-{
-  "nos": [
-    {"id": "NG_1130@1.0.0", "tipo": "documento", "rotulo": "NG_1130 v1.0.0", "codigo": "NG_1130",
-     "versao": "1.0.0", "titulo": "...", "tema": "inovacao", "dominio": "NIN",
-     "nivel": "Interna", "vigente": true},
-    {"id": "dominio:NIN", "tipo": "dominio", "rotulo": "NIN (Núcleo de Inovação)"},
-    {"id": "ref:NG_012", "tipo": "referencia", "rotulo": "NG_012", "codigo": "NG_012"}
-  ],
-  "arestas": [
-    {"origem": "NG_1130@1.0.0", "destino": "ref:NG_012", "tipo": "referencia",
-     "itens": ["4.9", "Anexo G"]}
-  ]
-}
-```
-
-- `tema` é opcional e só aceita `ferias`, `inovacao` ou `locacao`. Outro valor devolve `422`.
-- A identificação segue o `AUTH_MODE` (ver `docs/CONTRATO.md`). Sem persona, o grafo vem vazio.
-- A resposta sai com `Cache-Control: private, no-store`. Limite: 30 chamadas por minuto
-  (`RATE_GRAFO_PER_MIN`).
-
-Para gerar um diagrama Mermaid de uma projeção:
+Ver as relações de um documento, direto do código:
 
 ```python
-from app.services.grafo import get_grafo, para_mermaid
-print(para_mermaid(get_grafo().projetar("Interna")))
+from app.services.grafo import get_grafo
+for r in get_grafo().relacoes():
+    if r["origem"] == "NG_111@3.0.0":
+        print(r["tipo"], r["alvo"], r["itens"])
 ```
 
-`para_mermaid` usa ids técnicos (`n1`, `n2`...) e remove dos rótulos qualquer caractere fora de
-uma lista permitida. Um título com sintaxe Mermaid ou HTML vira texto inerte.
+A saída contém relações de todos os níveis. Não cole em issue, PR ou log: use só no servidor.
 
 ## 7. Mapa do acervo, projeção Interna
 
-Gerado em 12/11/2026 com o código acima, sobre o acervo **sintético** da ACME. O nível Interna foi
-escolhido de propósito. **Nunca commite projeção Restrita ou Sigilosa:** um arquivo no Git
-contorna o controle de acesso, e apagar depois não remove a cópia do histórico.
+Gerado em 12/11/2026 com a projeção que existia (seção 4), sobre o acervo **sintético** da ACME.
+O nível Interna foi escolhido de propósito. **Nunca commite projeção Restrita ou Sigilosa:** um
+arquivo no Git contorna o controle de acesso, e apagar depois não remove a cópia do histórico.
 
 Legenda: retângulo = versão vigente; paralelogramo = versão anterior; pílula = área dona;
 hexágono = código citado que não se resolve; `==>` substitui; `-->` vinculado_a;
@@ -277,23 +257,23 @@ O que o mapa mostra:
 
 | Achado | Tratamento |
 |---|---|
-| GRAFO-01, 02, 03 (nó ausente, proveniência e contagens revelam documento oculto) | Projeção por nível; alvo invisível igual a inexistente; áreas e contagens saem só da projeção |
+| GRAFO-01, 02, 03 (nó ausente, proveniência e contagens revelam documento oculto) | Nenhuma rota devolve as relações; no banco, cada linha leva o nível da origem |
 | GRAFO-04 (autorizar pela versão exata) | Cada versão é um nó; `substitui` exige as duas versões visíveis |
 | GRAFO-05 (expansão de busca por vizinho) | **Não se aplica.** O chat não usa o grafo; a busca não foi alterada |
 | GRAFO-06 (versão antiga volta à resposta normativa) | O grafo só mostra a sucessão. A busca comum continua sem versões substituídas |
 | GRAFO-07 (sucessão ambígua) | Sem aresta quando o código não tem exatamente uma versão vigente |
 | GRAFO-08, 09 (aresta muda acesso; código forjado) | Nenhuma aresta altera nível, dono ou vigência; gramática fechada de código |
-| GRAFO-12 (cache) | Cache das projeções por (nível, tema), ambos de conjunto fechado |
-| GRAFO-13, 14 (injeção no Mermaid) | Ids técnicos e rótulos filtrados por lista permitida |
-| GRAFO-15, 16 (limites) | 30 códigos por trecho, 8 itens por aresta, 5.000 arestas, 30 chamadas/min |
-| GRAFO-17 (tema livre) | `tema` é enum; outro valor devolve `422` |
+| GRAFO-12 (cache) | Sem projeção nem cache por pessoa: o grafo único fica só no servidor |
+| GRAFO-13, 14 (injeção no Mermaid) | O gerador saiu; o diagrama da seção 7 é texto fixo, revisado |
+| GRAFO-15, 16 (limites) | 30 códigos por trecho, 8 itens por relação, 5.000 relações; sem rota pública |
+| GRAFO-17 (tema livre) | Sem rota, sem parâmetro |
 | GRAFO-19 (diagrama no Git) | Só a projeção Interna do acervo sintético está neste arquivo |
 | GRAFO-20 (`AUTH_MODE` digitado errado) | Valor fora de `demo`/`token` impede a API de subir |
-| GRAFO-21 (chat revela área de conteúdo Restrito) | Exceção declarada em `docs/CONTRATO.md`. O grafo não repete esse comportamento |
+| GRAFO-21 (chat revela área de conteúdo Restrito) | Exceção declarada em `docs/CONTRATO.md`. As relações não repetem esse comportamento |
 
 Achados que dependem de decisões fora deste escopo (Silver assinado, recarga de política sem
 reiniciar, cache do front) estão registrados no relatório do Codex e na seção 5.
 
 O acervo é sintético ("A ACME Tecnologia e Serviços é uma empresa fictícia"). Com `AUTH_MODE=demo`
-qualquer pessoa escolhe qualquer persona. Por isso o grafo, como o resto do back, só deve rodar
-com dados reais em `AUTH_MODE=token`, atrás de HTTPS.
+qualquer pessoa escolhe qualquer persona. Por isso o back só deve rodar com dados reais em
+`AUTH_MODE=token`, atrás de HTTPS.

@@ -8,9 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import envios as rotas_envios
 from app.api.routes import front as rotas_front
-from app.api.routes import graficos as rotas_graficos
 from app.api.routes import identidade as rotas_identidade
-from app.api.routes.contrato import router
 from app.core.config import get_settings
 from app.core.limites import LimiteDeCorpo, OrigemConfiavel
 from app.services import audit_log, envios, persistencia, retencao
@@ -48,7 +46,7 @@ async def lifespan(_: FastAPI):
         audit_log.encerrar()
 
 
-# O Swagger fica em /swagger porque GET /docs é rota do contrato com o front (catálogo).
+# Documentação interativa em /swagger (o caminho já é o que o README e o contrato citam).
 app = FastAPI(title="Raiz IQ API", version="0.2.0", lifespan=lifespan,
               docs_url="/swagger", redoc_url=None)
 
@@ -57,17 +55,12 @@ app.add_middleware(OrigemConfiavel)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().origens_cors,
-    allow_credentials=True,  # o front manda credentials: include; origens são exatas
+    # O front chama com credentials: 'include' (src/services/http/client.ts). Sem este
+    # cabeçalho o navegador descarta a resposta. Não há cookie de sessão; as origens são exatas.
+    allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Persona-Id"],
 )
-app.include_router(router)
 app.include_router(rotas_envios.router)
 app.include_router(rotas_identidade.router)
-app.include_router(rotas_graficos.router)
 app.include_router(rotas_front.router)
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}

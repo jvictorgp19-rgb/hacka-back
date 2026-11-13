@@ -1,4 +1,4 @@
-"""Contrato do /chat e roteiro da demo (PROPOSTA.md, seção 8)."""
+"""Motor do chat (o de POST /conversations/messages) e roteiro da demo (PROPOSTA.md, seção 8)."""
 
 import json
 
@@ -6,10 +6,17 @@ from app.services.agent import router as agente
 from app.services.llm.client import RespostaLLM
 
 CAMPOS = {"answer", "bullets", "citations", "costBadge", "suggestedFollowups"}
+CTX = {"conversationId": "c1", "tema": "ferias", "area": "", "perspective": "obligations",
+       "from": "", "to": ""}
+
+
+def _post(client, query: str, persona: str = "ana", **extra):
+    return client.post("/conversations/messages",
+                       json={"query": query, "context": {**CTX, "persona": persona}, **extra})
 RESTRITO = ["3.650", "18.250", "Hub Jacarandá", "Palmeira Real", "121,67", "30/03/2027"]
 
 
-def test_shape_igual_ao_do_front(perguntar):
+def test_formato_da_resposta_do_motor(perguntar):
     d = perguntar("Quero férias a partir de 05/05/2027. Até quando peço?")
     assert CAMPOS <= d.keys()
     assert set(d["costBadge"]) == {"type", "label", "latencyMs", "sigiloNivel"}
@@ -110,19 +117,18 @@ def test_sem_persona_ve_so_publico(perguntar):
 
 
 def test_campo_de_nivel_enviado_pelo_cliente_e_ignorado(client):
-    r = client.post("/chat", json={"message": "Qual o valor do aluguel do coworking?",
-                                   "tema": "locacao", "perfil": "diretoria", "personaId": "ana",
-                                   "rbac": "Sigilosa", "nivel": "Sigilosa"})
-    assert "3.650" not in r.text
+    r = _post(client, "Qual o valor do aluguel do coworking?", perfil="diretoria",
+              rbac="Sigilosa", nivel="Sigilosa")
+    assert r.status_code == 200 and "3.650" not in r.text
 
 
 def test_mensagem_longa_e_recusada(client):
-    r = client.post("/chat", json={"message": "a" * 2001, "tema": "ferias", "personaId": "ana"})
-    assert r.status_code == 422
+    assert _post(client, "a" * 2001).status_code == 422
 
 
 def test_corpo_gigante_e_recusado(client):
-    r = client.post("/chat", content=b'{"message":"' + b"a" * 20000 + b'"}',
+    r = client.post("/conversations/messages",
+                    content=b'{"query":"' + b"a" * 20000 + b'"}',
                     headers={"Content-Type": "application/json"})
     assert r.status_code == 413
 
@@ -130,10 +136,10 @@ def test_corpo_gigante_e_recusado(client):
 def test_limite_de_taxa(client, monkeypatch):
     from app.core.config import get_settings
     monkeypatch.setattr(get_settings(), "rate_chat_per_min", 2)
-    corpo = {"message": "Equipe de 9, quantos podem sair juntos?", "personaId": "carlos"}
-    assert client.post("/chat", json=corpo).status_code == 200
-    assert client.post("/chat", json=corpo).status_code == 200
-    r = client.post("/chat", json=corpo)
+    pergunta = "Equipe de 9, quantos podem sair juntos?"
+    assert _post(client, pergunta, "carlos").status_code == 200
+    assert _post(client, pergunta, "carlos").status_code == 200
+    r = _post(client, pergunta, "carlos")
     assert r.status_code == 429 and "Retry-After" in r.headers
 
 

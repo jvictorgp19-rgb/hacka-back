@@ -6,10 +6,12 @@ O arquivo vai para um temporário, é triado em processo separado (app/services/
 apagado logo depois. O texto nunca é guardado. O registro tem só:
 - nome, tamanho e hash do arquivo;
 - a sugestão de sigilo e de setor, com os tipos de dado achados (nunca os valores);
-- a decisão do aprovador.
+- a situação da aprovação.
 Base: LGPD art. 6º, III (necessidade) e art. 46 (segurança).
 
-Aprovação (docs/CLASSIFICACAO_BBTS.md; LAI art. 27: classificar é ato de autoridade):
+Aprovação (docs/CLASSIFICACAO_BBTS.md; LAI art. 27: classificar é ato de autoridade).
+O hacka-front não tem tela de aprovação, então a API também não tem rota de decisão: o envio que
+precisa de aprovação fica pendente, visível só para quem enviou e para os aprovadores.
 - Precisa de aprovação:
   - o envio de desenvolvedor júnior;
   - toda sugestão que pede revisão humana: sigilosa, conteúdo não extraído ou confiança baixa.
@@ -54,6 +56,7 @@ from sqlalchemy import (
     Table,
     Text,
     select,
+    update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as insert_postgres
@@ -74,17 +77,12 @@ log = logging.getLogger("raiz.envios")
 
 MAX_EM_MEMORIA = 1000
 MAX_NOME = 120
-NIVEIS_DECISAO = ("Interna", "Sigilosa")
 STATUS_TRIADO = {"ready", "not_extracted"}
 ID_VALIDO = re.compile(r"^[0-9a-f]{32}$")
 
 
 class FilaCheia(RuntimeError):
     """Muitos arquivos esperando triagem."""
-
-
-class DecisaoInvalida(ValueError):
-    """Decisão fora da regra. A mensagem vai para o usuário."""
 
 
 @dataclass
@@ -264,11 +262,6 @@ def e_aprovador(persona: Persona | None, envio: Envio) -> bool:
     if dono and dono in persona.cura_dominios:
         return True
     return persona.senioridade == "diretor" and persona.setor == _diretoria_de(dono)
-
-
-def pode_decidir(persona: Persona | None, envio: Envio) -> bool:
-    return (envio.aprovacao == "pendente" and envio.status in STATUS_TRIADO
-            and e_aprovador(persona, envio))
 
 
 def pode_ver(persona: Persona | None, acesso: acl.Acesso, envio: Envio) -> bool:
@@ -457,64 +450,13 @@ def _processar(envio_id: str, caminho: Path) -> None:
             _na_fila -= 1
 
 
-# ---------- decisão ----------
-def decidir(envio_id: str, persona: Persona, aprovado: bool, resposta: str,
-            nivel: str | None = None, setores_: list[str] | None = None) -> Envio:
-    with _trava:
-        envio = _itens.get(envio_id)
-        if envio is None or not pode_decidir(persona, envio):
-            raise DecisaoInvalida("Envio não está aguardando a sua aprovação.")
-        if aprovado:
-            nivel = nivel or envio.nivel_sugerido
-            if nivel not in NIVEIS_DECISAO:
-                raise DecisaoInvalida("Nível deve ser Interna ou Sigilosa.")
-            lista = list(dict.fromkeys(setores_ or envio.setores_sugeridos))
-            desconhecidos = [s for s in lista if s not in setores()]
-            if desconhecidos or not lista or len(lista) > 10:
-                raise DecisaoInvalida("Setores inválidos: use as siglas da classificação BBTS.")
-            envio.aprovacao, envio.nivel_final, envio.setores_finais = "aprovado", nivel, lista
-            envio.setor_dono = lista[0]
-            detalhe = nivel + (f"; acesso: {', '.join(lista)}" if nivel == "Sigilosa"
-                               else f", setor dono {lista[0]}")
-            envio.mensagem = f"Aprovado por {persona.nome}: {detalhe}."
-        else:
-            envio.aprovacao, envio.nivel_final, envio.setores_finais = "recusado", None, []
-            envio.mensagem = f"Recusado por {persona.nome}."
-        envio.decidido_por, envio.decidido_em = persona.id, datetime.now(UTC)
-        envio.resposta = resposta
-        if resposta:
-            envio.mensagem += f" {resposta}"
-        copia = replace(envio)
-    _persistir(copia)
-    audit_log.registrar(persona.id, "aprovacao_envio", "permitido", copia.aprovacao, [copia.id],
-                        copia.nivel_final or "-")
-    return copia
-
-
-# ---------- retenção e eliminação (LGPD art. 15, 16 e 18, VI) ----------
+# ---------- retenção (LGPD art. 15 e 16) ----------
 EXPURGADO = "(dados pessoais eliminados)"
 
 
 def _eliminar_dados_pessoais(envio: Envio, motivo: str) -> None:
     envio.fatos_ferias, envio.nome_arquivo, envio.resposta = None, EXPURGADO, None
     envio.mensagem = motivo
-
-
-def esquecer(envio_id: str, persona: Persona) -> Envio:
-    """Quem enviou pede a eliminação: some o nome do arquivo, a resposta do aprovador e os fatos
-    de férias. Ficam a classificação e a decisão, sem dado pessoal (LGPD art. 16, I)."""
-    with _trava:
-        envio = _itens.get(envio_id)
-        if envio is None or envio.enviado_por != persona.id:
-            raise DecisaoInvalida("Só quem enviou pode pedir a eliminação.")
-        if envio.status in ("waiting", "processing"):
-            raise DecisaoInvalida("Espere a triagem terminar para pedir a eliminação.")
-        _eliminar_dados_pessoais(envio, "Dados pessoais eliminados a pedido de quem enviou.")
-        copia = replace(envio)
-    _persistir(copia)
-    audit_log.registrar(persona.id, "eliminacao_envio", "permitido", "lgpd_art18", [copia.id],
-                        "-")
-    return copia
 
 
 def expurgar(agora: datetime | None = None) -> int:
@@ -529,6 +471,38 @@ def expurgar(agora: datetime | None = None) -> int:
     for envio in vencidos:
         _persistir(envio)
     return len(vencidos)
+
+
+EM_TRIAGEM = ("waiting", "processing")
+
+
+def eliminar_a_pedido(envio_id: str) -> str:
+    """Pedido do titular antes do prazo (LGPD art. 18, VI), atendido pelo encarregado (art. 41).
+
+    Devolve "eliminado", "em_triagem" ou "nao_encontrado". Ficam só os metadados sem dado pessoal
+    (hash, nível, setor, decisão). Fora da API (scripts/eliminar_envio.py), a mudança vai direto ao
+    banco; a API larga a cópia em memória ao reiniciar, porque restaurar() relê do banco.
+    """
+    motivo = "Dados pessoais eliminados a pedido do titular."
+    with _trava:
+        envio = _itens.get(envio_id)
+        if envio is not None:
+            if envio.status in EM_TRIAGEM:
+                return "em_triagem"
+            _eliminar_dados_pessoais(envio, motivo)
+            copia = replace(envio)
+    if envio is not None:
+        _persistir(copia)  # mesma fila das outras gravações deste envio: fica por último
+        return "eliminado"
+    with _engine().begin() as conexao:
+        status = conexao.execute(select(tabela.c.status).where(tabela.c.id == envio_id)).scalar()
+        if status is None:
+            return "nao_encontrado"
+        if status in EM_TRIAGEM:
+            return "em_triagem"
+        conexao.execute(update(tabela).where(tabela.c.id == envio_id).values(
+            fatos_ferias=None, nome_arquivo=EXPURGADO, resposta=None, mensagem=motivo))
+    return "eliminado"
 
 
 # ---------- ciclo de vida ----------

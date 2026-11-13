@@ -69,6 +69,6 @@ def test_bloqueio_aponta_o_setor_dono_sem_revelar_documento(perguntar):
 
 
 def test_catalogo_da_rota_segue_a_matriz(client):
-    corpo = client.get("/docs", headers={"X-Persona-Id": "fernanda"}).json()
-    codigos = {d["codigo"] for d in corpo["vigentes"]}
+    corpo = client.get("/documents", headers={"X-Persona-Id": "fernanda"}).json()
+    codigos = {d["codigo"] for d in corpo if d["vigente"]}
     assert "CTR_2026-012" in codigos and "NT_2026-018" not in codigos

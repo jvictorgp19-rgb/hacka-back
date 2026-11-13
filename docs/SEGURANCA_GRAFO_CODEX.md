@@ -1,5 +1,7 @@
 # Revisão de segurança do grafo do acervo
 
+> **Histórico.** A rota `GET /grafo` e a projeção por nível saíram no commit `3ddaeda`. As relações continuam, só para o espelho no banco. Ver `docs/METODOLOGIA_GRAFO.md`.
+
 Data: 12/11/2026. Base examinada: branch thiago, HEAD a9b025f. Revisão anterior à implementação de grafo.py, GET /grafo, expansão de busca e METODOLOGIA_GRAFO.md.
 
 **Parecer:** o desenho precisa de ajustes antes de implementar. Remover nós proibidos e suas arestas é necessário, mas não protege os nós “ausentes”, a proveniência das relações, os agregados nem a autorização de versões antigas. O grafo deve ser uma projeção das evidências que o sujeito pode consultar; não pode criar uma segunda política de acesso nem conceder permissão por conectividade.

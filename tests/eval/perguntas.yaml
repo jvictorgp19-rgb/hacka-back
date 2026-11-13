@@ -2,7 +2,7 @@
 # (exemplos e FAQs dos anexos) e do roteiro de demo.
 #
 # tipo:     resposta | abstencao | bloqueio | revogada
-# contem:   trechos que precisam aparecer na resposta (answer + bullets)
+# contem:   trechos que precisam aparecer no texto da resposta (campo text, sem markdown)
 # cita:     documento que precisa estar nas citações
 # Rodar:    python -m tests.eval.run_eval
 
@@ -17,17 +17,17 @@
 - {pergunta: "Mas não eram 30 dias de antecedência para pedir férias?", persona: ana,
    tema: ferias, tipo: revogada, contem: ["45"], cita: NG_111}
 - {pergunta: "Equipe de 9, quantos podem sair de férias juntos?", persona: carlos, tema: ferias,
-   tipo: resposta, contem: ["**2**"], cita: NG_111}
+   tipo: resposta, contem: ["no máximo 2 pessoas"], cita: NG_111}
 - {pergunta: "Em uma equipe de 10 pessoas, quantas podem estar de férias ao mesmo tempo?",
-   persona: carlos, tema: ferias, tipo: resposta, contem: ["**3**"], cita: TB_1111-001}
+   persona: carlos, tema: ferias, tipo: resposta, contem: ["no máximo 3 pessoas"], cita: TB_1111-001}
 - {pergunta: "Equipe de 3 empregados: quantos saem de férias juntos?", persona: carlos,
-   tema: ferias, tipo: resposta, contem: ["**1**"], cita: NG_111}
+   tema: ferias, tipo: resposta, contem: ["no máximo 1 pessoa"], cita: NG_111}
 - {pergunta: "Tenho 7 faltas injustificadas. Quantos dias de férias eu tenho?", persona: ana,
    tema: ferias, tipo: resposta, contem: ["24 dias"], cita: TB_1111-001}
 - {pergunta: "Com 33 faltas eu ainda tenho férias?", persona: ana, tema: ferias,
    tipo: resposta, contem: ["perda do direito"], cita: TB_1111-001}
 - {pergunta: "Posso dividir as férias em 14, 8 e 8 dias?", persona: ana, tema: ferias,
-   tipo: resposta, contem: ["é **válida**"], cita: NG_111}
+   tipo: resposta, contem: ["é válida"], cita: NG_111}
 - {pergunta: "Posso fracionar as férias em 10, 10 e 10 dias?", persona: ana, tema: ferias,
    tipo: resposta, contem: ["não é válida"], cita: NG_111}
 - {pergunta: "Qual o ressarcimento para uma despesa de R$ 3.000,00 em férias alteradas?",
