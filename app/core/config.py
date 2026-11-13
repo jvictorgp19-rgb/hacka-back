@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     auth_token_secret: str = Field(default="", repr=False)
     auth_token_ttl_min: int = 30
     demo_default_persona: str = ""
+    # Cookie de identidade (POST /identity). Em produção: COOKIE_SECURE=true (só HTTPS).
+    # Front e API em domínios diferentes exigem COOKIE_SAMESITE=none (e COOKIE_SECURE=true).
+    cookie_secure: bool = False
+    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    cookie_max_age_min: int = 480
 
     llm_base_url: str = ""
     llm_api_key: str = Field(default="", repr=False)

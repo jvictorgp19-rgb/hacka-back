@@ -1,8 +1,10 @@
 """Identidade do chamador.
 
-AUTH_MODE=demo  -> simulação: aceita personaId (body, header X-Persona-Id ou query).
+AUTH_MODE=demo  -> simulação: aceita personaId (body, header X-Persona-Id, query personaId ou
+                   persona, ou o cookie raiz_persona gravado por POST /identity).
                    Sem persona válida, o sujeito é anônimo e vê só o nível Pública.
-AUTH_MODE=token -> exige Authorization: Bearer <persona>.<exp>.<assinatura HMAC-SHA256>.
+AUTH_MODE=token -> exige Authorization: Bearer <persona>.<exp>.<assinatura HMAC-SHA256>, ou o
+                   mesmo token no cookie HttpOnly raiz_sessao (gravado por POST /identity).
 
 Emitir token:  python -m app.core.auth <personaId>
 """
@@ -20,6 +22,8 @@ from app.core.config import get_settings
 from app.core.personas import PERSONAS, Persona
 
 _ERRO_TOKEN = "Token ausente ou inválido."
+COOKIE_DEMO = "raiz_persona"
+COOKIE_SESSAO = "raiz_sessao"
 
 
 @dataclass(frozen=True)
@@ -57,12 +61,11 @@ def emitir_token(persona_id: str) -> str:
     return f"{persona_id}.{exp}.{_assinar(persona_id, exp, cfg.auth_token_secret)}"
 
 
-def _sujeito_do_token(request: Request) -> Sujeito:
+def validar_token(token: str) -> Sujeito:
     cfg = get_settings()
-    cabecalho = request.headers.get("authorization", "")
-    if not cabecalho.lower().startswith("bearer ") or len(cfg.auth_token_secret) < 32:
+    if len(cfg.auth_token_secret) < 32:
         raise HTTPException(401, _ERRO_TOKEN)
-    partes = cabecalho[7:].strip().split(".")
+    partes = token.strip().split(".")
     if len(partes) != 3 or not partes[1].isdigit():
         raise HTTPException(401, _ERRO_TOKEN)
     persona_id, exp, assinatura = partes[0], int(partes[1]), partes[2]
@@ -73,6 +76,15 @@ def _sujeito_do_token(request: Request) -> Sujeito:
     if persona is None:
         raise HTTPException(401, _ERRO_TOKEN)
     return Sujeito(persona, persona.nivel)
+
+
+def _sujeito_do_token(request: Request) -> Sujeito:
+    cabecalho = request.headers.get("authorization", "")
+    if cabecalho.lower().startswith("bearer "):
+        return validar_token(cabecalho[7:])
+    if request.cookies.get(COOKIE_SESSAO):
+        return validar_token(request.cookies[COOKIE_SESSAO])
+    raise HTTPException(401, _ERRO_TOKEN)
 
 
 def resolver_sujeito(request: Request, persona_body: str | None = None) -> Sujeito:
@@ -88,6 +100,8 @@ def resolver_sujeito(request: Request, persona_body: str | None = None) -> Sujei
         persona_body
         or request.headers.get("x-persona-id")
         or request.query_params.get("personaId")
+        or request.query_params.get("persona")  # o front manda ?persona= em algumas rotas
+        or request.cookies.get(COOKIE_DEMO)
         or cfg.demo_default_persona
     )
     persona = PERSONAS.get(informado or "")

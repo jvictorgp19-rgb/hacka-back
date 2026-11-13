@@ -48,6 +48,7 @@ curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
 | `POST /reports` · `GET /reports/pptx` | Deck executivo em JSON ou `.pptx`, com citações nas notas |
 | `GET /ingest?hoje=` | Auditoria do acervo: anacronismos, referências ausentes, conflito de vigência |
 | `GET /grafo?tema=` | Mapa do acervo: documentos, versões e relações no nível de quem consulta |
+| `GET /identity` · `POST /identity` | Quem é o usuário do front; grava a persona (ou o token) em cookie HttpOnly |
 | `POST /document-jobs` · `GET /document-jobs[/{id}]` | Envio de arquivo: triagem (sigilo + setor dono) em segundo plano |
 | `POST /document-jobs/{id}/decision` | Aprovador do setor confirma, corrige ou recusa a classificação |
 

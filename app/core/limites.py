@@ -59,11 +59,19 @@ class OrigemConfiavel:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
+    @staticmethod
+    def _permitida(origem: str, scope: Scope) -> bool:
+        if origem in get_settings().origens_cors:
+            return True
+        # Mesma origem (o Swagger em /swagger). O navegador não deixa outro site forjar o Host.
+        host = dict(scope.get("headers") or []).get(b"host", b"").decode("latin-1")
+        return bool(host) and origem == f"{scope.get('scheme', 'http')}://{host}"
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and scope["method"] in self.METODOS:
             origem = dict(scope.get("headers") or []).get(b"origin")
-            if origem is not None and (origem.decode("latin-1").rstrip("/")
-                                       not in get_settings().origens_cors):
+            if origem is not None and not self._permitida(
+                    origem.decode("latin-1").rstrip("/"), scope):
                 corpo = b'{"detail":"Origem nao permitida."}'
                 await send({"type": "http.response.start", "status": 403,
                             "headers": [(b"content-type", b"application/json"),

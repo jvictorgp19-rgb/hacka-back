@@ -216,3 +216,23 @@ class UploadDecision(_Entrada):
     persona: str | None = Field(default=None, max_length=40)
     nivel: Literal["Interna", "Sigilosa"] | None = None
     setores: list[str] | None = Field(default=None, max_length=10)
+
+
+# ---------- /identity (hacka-front: identitySchema) ----------
+class Identity(BaseModel):
+    """id, name e capabilities são o identitySchema do front; o resto descreve o acesso."""
+
+    id: str
+    name: str
+    capabilities: list[str]
+    modo: Literal["demo", "token"]
+    setor: str | None = None
+    setorNome: str | None = None
+    cargo: str | None = None
+    senioridade: str | None = None
+    habilitacao: Nivel
+
+
+class IdentityLogin(_Entrada):
+    persona: str | None = Field(default=None, max_length=40)  # AUTH_MODE=demo
+    token: str | None = Field(default=None, max_length=300)  # AUTH_MODE=token

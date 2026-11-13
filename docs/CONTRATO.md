@@ -106,8 +106,39 @@ habilitação saem do cadastro no servidor (`app/core/personas.py`).
 
 | `AUTH_MODE` | Como identificar | Sem identificação |
 |---|---|---|
-| `demo` (padrão) | `personaId` no body, **ou** header `X-Persona-Id`, **ou** query `?personaId=` | Vê só o nível Pública: listas vazias |
-| `token` | `Authorization: Bearer <token>` (emitir: `python -m app.core.auth <personaId>`) | `401` |
+| `demo` (padrão) | `personaId` no body, **ou** header `X-Persona-Id`, **ou** query `?personaId=`/`?persona=`, **ou** cookie `raiz_persona` | Vê só o nível Pública: listas vazias |
+| `token` | `Authorization: Bearer <token>` **ou** cookie `raiz_sessao` (emitir: `python -m app.core.auth <personaId>`) | `401` |
+
+### Identidade do front (`/identity`)
+
+No modo API, o front não escolhe a persona: ele chama `GET /identity`, como faria com um SSO. Não
+há tela de login. Para gravar a identidade, quem apresenta chama `POST /identity` uma vez, pelo
+Swagger (`/swagger`) ou pelo front. O servidor responde com um cookie HttpOnly, e o front o manda
+em todas as chamadas (`credentials: include`).
+
+| Rota | Corpo | Resposta |
+|---|---|---|
+| `GET /identity` | — | `{id, name, capabilities, modo, setor, setorNome, cargo, senioridade, habilitacao}` |
+| `POST /identity` | demo: `{persona}`; token: `{token}` | igual ao GET, com `Set-Cookie` |
+| `POST /identity/sair` | — | visitante; apaga os cookies |
+
+`capabilities` só orienta a tela. A autorização é refeita em cada rota.
+
+| Capacidade | Quem tem |
+|---|---|
+| `upload` | toda pessoa identificada |
+| `approve` | sênior, gestor e diretor |
+| `curate` | curadoria e diretoria; o front usa esta capacidade para mostrar a governança |
+| `sigiloso` | quem tem habilitação Sigilosa |
+
+O cookie usa `SameSite=Lax` por padrão. Isso funciona com o front e a API em
+`localhost:3000` e `localhost:8000`, porque portas diferentes contam como o mesmo site.
+
+Com o front e a API em domínios diferentes:
+
+- use `COOKIE_SAMESITE=none`;
+- o cookie passa a ser enviado só por HTTPS (`Secure`);
+- a checagem de `Origin` continua barrando POST vindo de outros sites.
 
 | Persona | Setor | Cargo | Habilitação | Sigilosos que vê |
 |---|---|---|---|---|
