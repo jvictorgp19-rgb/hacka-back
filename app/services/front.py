@@ -177,35 +177,38 @@ def _centavos(valor) -> int:
     return int(round(valor * 100))
 
 
-FONTES_SIMULACAO = [*ferias.FONTES_TABELAS, "NT_2026-021", contrato.CODIGO]
+FONTES_FERIAS = list(ferias.FONTES_TABELAS)
+FONTES_INOVACAO = ["NT_2026-021"]
+FONTES_LOCACAO = [contrato.CODIGO]
+FONTES_SIMULACAO = [*FONTES_FERIAS, *FONTES_INOVACAO, *FONTES_LOCACAO]
 
 
 def regras_simulacao(sujeito: Sujeito, links: Links) -> dict:
-    """Regras das calculadoras do back, num pacote só (contrato do front).
+    """Regras das calculadoras do back, em grupos por fonte (contrato do front).
 
-    O pacote junta valores de documentos sigilosos (alçadas da NT_2026-021, aluguel e multa do
-    CTR_2026-012). Quem não vê todas as fontes recebe 403: o contrato não tem como mandar só
-    uma parte, e o valor sigiloso não sai (docs/PENDENCIAS_FRONT.md).
+    Cada grupo só sai se o sujeito vê todas as fontes dele: férias (NG_111, TB_1111-001),
+    inovação (alçadas da NT_2026-021) e locação (aluguel e multa do CTR_2026-012). Um grupo sem
+    permissão fica de fora por inteiro, com todos os seus valores, e `available` não lista o
+    tema. Sem acesso às regras de férias, que a base exige, a resposta é 403: nada parcial além
+    dos grupos acima.
     """
     acervo = get_acervo()
     acesso = sujeito.acesso
-    if not acervo.autorizado(FONTES_SIMULACAO, acesso):
-        raise SemPermissao("Seu perfil não tem acesso a todas as fontes dos simuladores.")
+    if not acervo.autorizado(FONTES_FERIAS, acesso):
+        raise SemPermissao("Seu perfil não tem acesso às fontes dos simuladores.")
+    inovacao = acervo.autorizado(FONTES_INOVACAO, acesso)
+    locacao = acervo.autorizado(FONTES_LOCACAO, acesso)
     feriados = sorted(d.isoformat() for ano in range(CALENDARIO_DE.year, CALENDARIO_ATE.year + 1)
                       for d in calendario.feriados(ano))
     citacoes = {c["id"]: c for c in [f["citation"] for f in evidencias.fatos(acesso, links)]
                 + evidencias.fontes_simulacao(acesso, links)}
-    return {
+    regras: dict = {
         "advanceDays": ferias.ANTECEDENCIA_SOLICITACAO,
         "absencePercent": ferias.PERCENTUAL_AUSENCIA,
         "absenceTiers": [{"max": maximo, "days": dias}
                          for _, maximo, dias in ferias.TABELA_FALTAS],
-        "managerCapCents": _centavos(alcadas.LIMITE_GERENTE),
-        "directorCapCents": _centavos(alcadas.LIMITE_DIRETOR),
-        "rentCents": _centavos(contrato.ALUGUEL),
-        "dailyDiscountCents": _centavos(contrato.GLOSA_DIARIA),
-        "globalCents": _centavos(contrato.VALOR_GLOBAL),
-        "fineThroughDay": (contrato.ULTIMO_DIA_COM_MULTA - contrato.INICIO).days + 1,
+        "available": ["ferias", *(["inovacao"] if inovacao else []),
+                      *(["locacao"] if locacao else [])],
         "calendar": {
             "from": CALENDARIO_DE.isoformat(), "to": CALENDARIO_ATE.isoformat(),
             "complete": False, "holidays": feriados,
@@ -214,6 +217,15 @@ def regras_simulacao(sujeito: Sujeito, links: Links) -> dict:
                            "facultativos não entram: valide com a unidade."},
         "citations": list(citacoes.values()),
     }
+    if inovacao:
+        regras["managerCapCents"] = _centavos(alcadas.LIMITE_GERENTE)
+        regras["directorCapCents"] = _centavos(alcadas.LIMITE_DIRETOR)
+    if locacao:
+        regras["rentCents"] = _centavos(contrato.ALUGUEL)
+        regras["dailyDiscountCents"] = _centavos(contrato.GLOSA_DIARIA)
+        regras["globalCents"] = _centavos(contrato.VALOR_GLOBAL)
+        regras["fineThroughDay"] = (contrato.ULTIMO_DIA_COM_MULTA - contrato.INICIO).days + 1
+    return regras
 
 
 # ---------- conversa ----------

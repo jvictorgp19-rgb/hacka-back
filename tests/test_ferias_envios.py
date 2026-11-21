@@ -14,7 +14,13 @@ PERGUNTA = "Quantos dias de férias eu tenho?"
 
 @pytest.fixture(autouse=True)
 def _limpo(client):
+    from sqlalchemy import delete
+
+    envios.esperar()
     envios.limpar()
+    with envios._engine().begin() as c:
+        c.execute(delete(envios.arquivos))
+        c.execute(delete(envios.tabela))
     yield
     envios.esperar()
 

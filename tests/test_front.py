@@ -120,21 +120,71 @@ def test_findings_so_governanca(client):
     assert "NT_2026-021" not in json.dumps(achados)
 
 
-def test_simulation_rules_so_com_todas_as_fontes(client, monkeypatch):
+# Quem vê cada grupo de regras (fontes: NG_111/TB_1111-001, NT_2026-021, CTR_2026-012).
+VE_INOVACAO = {"helena", "diretora_diraf"}
+VE_LOCACAO = {"rafael", "fernanda", "sergio"}
+PERSONAS_TODAS = ["ana", "carlos", "marina", "rafael", "diretora_diraf", "curadora_ggc",
+                  "bruno", "helena", "fernanda", "sergio"]
+CAMPOS_INOVACAO = {"managerCapCents", "directorCapCents"}
+CAMPOS_LOCACAO = {"rentCents", "dailyDiscountCents", "globalCents", "fineThroughDay"}
+
+
+def test_simulation_rules_exige_identificacao(client):
     assert client.get("/simulation-rules").status_code == 401
-    for persona in ("ana", "rafael", "helena", "diretora_diraf"):
+
+
+def test_simulation_rules_cada_persona_recebe_so_os_grupos_que_pode_ver(client):
+    for persona in PERSONAS_TODAS:
         r = client.get("/simulation-rules", headers=H(persona))
-        assert r.status_code == 403  # o pacote junta alçadas e contrato sigilosos
-        assert "3650" not in r.text and "18000" not in r.text
-    monkeypatch.setattr(type(get_acervo()), "autorizado", lambda *_: True)
-    regras = client.get("/simulation-rules", headers=H("diretora_diraf")).json()
-    assert regras["advanceDays"] == 45 and regras["absencePercent"] == 30
-    assert regras["absenceTiers"][0] == {"max": 5, "days": 30}
-    assert regras["rentCents"] == 365000 and regras["fineThroughDay"] == 90
-    assert regras["managerCapCents"] == 1800000 and regras["globalCents"] == 1825000
-    assert "2027-03-26" in regras["calendar"]["holidays"]  # Sexta-feira Santa (Páscoa 28/03)
-    itens = {(c["codigo"], c["item"]) for c in regras["citations"]}
+        assert r.status_code == 200, persona  # férias é Interna: todo identificado vê
+        regras = r.json()
+        # base de férias sempre presente
+        assert regras["advanceDays"] == 45 and regras["absencePercent"] == 30
+        assert regras["absenceTiers"][0] == {"max": 5, "days": 30}
+        esperado = ["ferias"] + (["inovacao"] if persona in VE_INOVACAO else []) \
+            + (["locacao"] if persona in VE_LOCACAO else [])
+        assert regras["available"] == esperado, persona
+        # grupo restrito: presente por inteiro para quem vê, ausente por inteiro para quem não vê
+        assert (CAMPOS_INOVACAO <= regras.keys()) == (persona in VE_INOVACAO), persona
+        assert not (CAMPOS_INOVACAO & regras.keys()) or persona in VE_INOVACAO
+        assert (CAMPOS_LOCACAO <= regras.keys()) == (persona in VE_LOCACAO), persona
+        assert not (CAMPOS_LOCACAO & regras.keys()) or persona in VE_LOCACAO
+
+
+def test_simulation_rules_nao_vaza_valor_nem_citacao_sigilosa(client):
+    for persona in PERSONAS_TODAS:
+        r = client.get("/simulation-rules", headers=H(persona))
+        regras, texto = r.json(), r.text
+        codigos = {c["codigo"] for c in regras["citations"]}
+        if persona not in VE_INOVACAO:
+            assert "NT_2026-021" not in codigos and "1800000" not in texto, persona
+            assert "12000000" not in texto, persona
+        if persona not in VE_LOCACAO:
+            assert "CTR_2026-012" not in codigos, persona
+            for valor in ("365000", "12167", "1825000"):
+                assert valor not in texto, (persona, valor)
+
+
+def test_simulation_rules_valores_dos_grupos_liberados(client):
+    inovacao = client.get("/simulation-rules", headers=H("diretora_diraf")).json()
+    assert inovacao["managerCapCents"] == 1800000 and inovacao["directorCapCents"] == 12000000
+    assert "2027-03-26" in inovacao["calendar"]["holidays"]  # Sexta-feira Santa (Páscoa 28/03)
+    locacao = client.get("/simulation-rules", headers=H("rafael")).json()
+    assert locacao["rentCents"] == 365000 and locacao["fineThroughDay"] == 90
+    assert locacao["dailyDiscountCents"] == 12167 and locacao["globalCents"] == 1825000
+    itens = {(c["codigo"], c["item"]) for c in locacao["citations"]}
     assert ("NG_111", "4.6.3") in itens and ("TB_1111-001", "Tabela 1") in itens
+
+
+def test_simulation_rules_403_sem_acesso_a_ferias(client, monkeypatch):
+    from app.services.front import FONTES_FERIAS
+
+    real = type(get_acervo()).autorizado
+    monkeypatch.setattr(type(get_acervo()), "autorizado",
+                        lambda self, fontes, acesso: False if list(fontes) == FONTES_FERIAS
+                        else real(self, fontes, acesso))
+    r = client.get("/simulation-rules", headers=H("ana"))
+    assert r.status_code == 403 and "365000" not in r.text
 
 
 # ---------- conversa ----------

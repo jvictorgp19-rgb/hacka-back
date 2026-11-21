@@ -57,7 +57,8 @@ A API expõe só o que o [hacka-front](https://github.com/jvictorgp19-rgb/hacka-
 | `GET` · `POST /access-requests` · `POST /access-requests/{id}/decision` | Pedidos de acesso ao setor dono |
 | `GET` · `POST /analyses` | Análises e resumos salvos |
 | `GET` · `POST /feedback` | Avaliação das respostas |
-| `POST /document-jobs` · `GET /document-jobs/{id}` | Envio de arquivo: triagem (sigilo + setor dono) em segundo plano |
+| `POST /document-jobs` · `GET /document-jobs` · `GET /document-jobs/{id}` | Envio persistente, histórico e triagem (sigilo + setor dono) |
+| `GET /document-jobs/{id}/file` · `POST /document-jobs/{id}/decision` | Original com controle de acesso e aprovação registrada |
 
 Formatos, identidade, limites e pendências do front: [docs/CONTRATO.md](docs/CONTRATO.md) e
 [docs/PENDENCIAS_FRONT.md](docs/PENDENCIAS_FRONT.md).
@@ -106,6 +107,20 @@ LLM_MODEL=<nome do modelo>
 
 Sem essas variáveis, o chat responde com calculadoras e trechos citados (modo extrativo). HTTP
 sem TLS só é aceito para `localhost` (túnel SSH), salvo `LLM_ALLOW_HTTP=true`.
+
+### LLM no Amazon Bedrock
+Com `LLM_PROVIDER=bedrock` o back chama o modelo pela Converse API. Não há chave no `.env`: a
+autenticação vem da role da instância (ou de qualquer credencial AWS do ambiente), que precisa de
+`bedrock:InvokeModel` no modelo escolhido.
+```
+LLM_PROVIDER=bedrock
+LLM_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+LLM_AWS_REGION=us-east-1
+```
+Use o id de um perfil de inferência (prefixo `us.` ou `global.`) quando o modelo não aceita
+invocação direta. O fluxo de segurança é o mesmo do provedor OpenAI: o modelo recebe só trechos
+numerados que o sujeito pode ver, e a resposta sem citação válida é descartada. Qualquer falha do
+Bedrock (credencial, cota, tempo) cai no modo extrativo.
 
 ## Banco (Neon)
 
@@ -265,10 +280,24 @@ classificação BBTS nos 13 PDFs (`tests/test_triagem.py`).
 
 Pelo site, o mesmo fluxo roda em `POST /document-jobs`. O envio de júnior, ou o envio com
 sugestão sigilosa, fica pendente de aprovação, visível só para quem enviou e para os
-aprovadores. A API não tem rota de decisão: o front ainda não tem essa tela. Regras em
-[docs/CONTRATO.md](docs/CONTRATO.md). A tabela `triagem_documento` é criada uma vez com o
-papel dono: `python -m app.services.envios raiz_app`. O comando dá ao papel da aplicação só
-`SELECT`, `INSERT` e `UPDATE`.
+aprovadores. `GET /document-jobs` recupera o histórico ao voltar à aba ou recarregar a página.
+O recebimento só é confirmado depois do commit do registro e do original, na mesma transação.
+O original fica em `triagem_arquivo`, pode ser baixado com autorização e é eliminado junto
+com os dados pessoais na retenção. A cópia temporária usada pela triagem continua sendo apagada.
+`POST /document-jobs/{id}/decision` confirma a sugestão e registra responsável e data.
+Regras em [docs/CONTRATO.md](docs/CONTRATO.md).
+
+Antes de atualizar uma instalação existente, rode com o papel dono (conexão direta) e volte
+depois à credencial restrita da aplicação:
+
+```bash
+python -m app.services.envios raiz_app
+```
+
+O comando cria a nova tabela sem alterar os registros existentes e concede `SELECT`, `INSERT`,
+`UPDATE` em `triagem_documento` e `SELECT`, `INSERT`, `DELETE` em `triagem_arquivo`.
+Originais apagados pela versão anterior precisam ser reenviados; os registros antigos
+continuam aparecendo no histórico.
 
 ## Estrutura
 

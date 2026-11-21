@@ -1,7 +1,7 @@
 """Envio de arquivos (/document-jobs): contrato do front, triagem, quem vê o pendente e banco."""
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.config import get_settings
 from app.services import envios
@@ -17,7 +17,11 @@ CAMPOS_DO_FRONT = {"id", "name", "size", "status", "message"}
 
 @pytest.fixture(autouse=True)
 def _limpo():
+    envios.esperar()
     envios.limpar()
+    with envios._engine().begin() as c:
+        c.execute(delete(envios.arquivos))
+        c.execute(delete(envios.tabela))
     yield
     envios.esperar()
 
@@ -176,7 +180,7 @@ def test_banco_guarda_a_triagem_sem_o_conteudo(client):
 def test_restaurar_traz_os_envios_de_volta(client):
     item = _triado(client, "bruno", "servico.py", CODIGO)
     envios.limpar()
-    assert _ver(client, "bruno", item["id"]).status_code == 404
+    assert _ver(client, "bruno", item["id"]).status_code == 200
     assert envios.restaurar() >= 1
     volta = _ver(client, "helena", item["id"]).json()
     assert volta["aprovacao"] == "pendente"
@@ -185,3 +189,122 @@ def test_restaurar_traz_os_envios_de_volta(client):
 def test_id_invalido_e_404(client):
     assert _ver(client, "ana", "../../etc").status_code == 404
     assert _ver(client, "ana", "0" * 32).status_code == 404
+
+
+def test_historico_e_original_sobrevivem_a_memoria_vazia(client):
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    envios.limpar()
+    r = client.get("/document-jobs", headers={"X-Persona-Id": "bruno"})
+    assert r.status_code == 200 and r.headers["cache-control"] == "private, no-store"
+    assert [e["id"] for e in r.json()] == [item["id"]]
+    assert r.json()[0]["saved"] and r.json()[0]["fileAvailable"]
+    original = client.get(f"/document-jobs/{item['id']}/file",
+                          headers={"X-Persona-Id": "bruno"})
+    assert original.status_code == 200 and original.content == CODIGO.encode()
+    assert original.headers["cache-control"] == "private, no-store"
+    assert "attachment" in original.headers["content-disposition"]
+
+
+def test_historico_e_download_respeitam_permissoes(client):
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    assert client.get("/document-jobs").status_code == 401
+    for persona in ("fernanda", "ana"):
+        headers = {"X-Persona-Id": persona}
+        assert client.get("/document-jobs", headers=headers).json() == []
+        assert client.get(f"/document-jobs/{item['id']}/file", headers=headers).status_code == 404
+    aprovador = client.get("/document-jobs", headers={"X-Persona-Id": "helena"}).json()
+    assert aprovador[0]["canApprove"]
+    assert not _ver(client, "bruno", item["id"]).json()["canApprove"]
+
+
+def test_aprovacao_persistida_e_nao_repetida(client):
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    url = f"/document-jobs/{item['id']}/decision"
+    body = {"status": "aprovado"}
+    assert client.post(url, json=body, headers={"X-Persona-Id": "bruno"}).status_code == 403
+    aprovado = client.post(url, json=body, headers={"X-Persona-Id": "helena"})
+    assert aprovado.status_code == 200
+    assert aprovado.json()["aprovacao"] == "aprovado" and not aprovado.json()["canApprove"]
+    assert aprovado.json()["decidedBy"] == "helena" and aprovado.json()["decidedAt"].endswith("Z")
+    assert aprovado.json()["nivelFinal"] == "Sigilosa"
+    assert aprovado.json()["setoresFinais"] == ["GEINOV"]
+    envios.limpar()
+    assert _ver(client, "bruno", item["id"]).json()["aprovacao"] == "aprovado"
+    assert client.post(url, json=body, headers={"X-Persona-Id": "helena"}).status_code == 409
+
+
+def test_falha_de_gravacao_nao_confirma_recebimento(client, monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    def falhar(*args):
+        raise SQLAlchemyError("credencial-do-driver-que-nao-deve-sair")
+
+    monkeypatch.setattr(envios, "_gravar_no_banco", falhar)
+    r = _enviar(client, "ana", "norma.md", NORMA)
+    assert r.status_code == 503
+    assert "credencial" not in r.text
+    assert client.get("/document-jobs", headers={"X-Persona-Id": "ana"}).json() == []
+    assert envios._na_fila == 0
+
+
+def test_retencao_e_eliminacao_removem_originais_do_banco(client):
+    from datetime import UTC, datetime, timedelta
+
+    item = _triado(client, "ana", "norma.md", NORMA)
+    assert envios.eliminar_a_pedido(item["id"]) == "eliminado"
+    assert not _ver(client, "ana", item["id"]).json()["fileAvailable"]
+    assert client.get(f"/document-jobs/{item['id']}/file",
+                      headers={"X-Persona-Id": "ana"}).status_code == 404
+    outro = _triado(client, "ana", "norma.md", NORMA)
+    envios.limpar()  # retenção precisa alcançar também envios fora do cache
+    depois = datetime.now(UTC) + timedelta(days=get_settings().retencao_envios_dias + 1)
+    assert envios.expurgar(depois) == 1
+    with envios._engine().connect() as c:
+        assert c.execute(select(envios.arquivos)).first() is None
+    assert _ver(client, "ana", outro["id"]).json()["name"] == envios.EXPURGADO
+
+
+def test_paginacao_do_historico_depois_da_autorizacao(client):
+    _triado(client, "bruno", "servico.py", CODIGO)
+    primeiro = _triado(client, "ana", "um.md", NORMA)
+    segundo = _triado(client, "ana", "dois.md", NORMA)
+    headers = {"X-Persona-Id": "ana"}
+    assert client.get("/document-jobs?limit=1", headers=headers).json()[0]["id"] == segundo["id"]
+    assert client.get("/document-jobs?limit=1&offset=1", headers=headers).json()[0]["id"] \
+        == primeiro["id"]
+
+
+def test_original_e_registro_lidos_por_outro_processo(client):
+    import json
+    import subprocess
+    import sys
+
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    r = subprocess.run([sys.executable, "-c", (
+        "import json, sys; from app.services import envios; "
+        "e=envios.obter(sys.argv[1]); "
+        "print(json.dumps({'nome':e.nome_arquivo, 'conteudo':envios.conteudo(e).decode()}))"
+    ), item["id"]], capture_output=True, text=True, check=True, timeout=20)
+    assert json.loads(r.stdout) == {"nome": "servico.py", "conteudo": CODIGO}
+
+
+def test_duas_decisoes_concorrentes_so_confirmam_uma(client):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.core.personas import PERSONAS
+
+    item = _triado(client, "bruno", "servico.py", CODIGO)
+    primeiro, segundo = envios.obter(item["id"]), envios.obter(item["id"])
+
+    def decidir(envio, status):
+        try:
+            return envios.decidir(envio, PERSONAS["helena"], status).aprovacao
+        except envios.DecisaoConflitante:
+            return "conflito"
+
+    with ThreadPoolExecutor(max_workers=2) as fila:
+        a = fila.submit(decidir, primeiro, "aprovado")
+        b = fila.submit(decidir, segundo, "recusado")
+        resultados = [a.result(), b.result()]
+    assert resultados.count("conflito") == 1
+    assert envios.obter(item["id"]).aprovacao in resultados

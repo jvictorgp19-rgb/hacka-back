@@ -179,14 +179,22 @@ class Calendario(BaseModel):
 
 
 class RegrasSimulacao(BaseModel):
+    """Regras das calculadoras, em grupos por fonte.
+
+    Férias (NG_111, TB_1111-001) vêm sempre. Os grupos de inovação (alçadas da NT_2026-021) e de
+    locação (CTR_2026-012) só vêm se o sujeito vê a fonte; sem permissão os campos ficam ausentes
+    do JSON (a rota usa exclude_none) e `available` não lista o tema. Nenhum valor de fonte
+    restrita sai para quem não a vê.
+    """
     advanceDays: int = Field(gt=0)
     absencePercent: float = Field(gt=0, le=100)
     absenceTiers: list[FaixaFaltas]
-    managerCapCents: int = Field(ge=0)
-    directorCapCents: int = Field(ge=0)
-    rentCents: int = Field(ge=0)
-    dailyDiscountCents: int = Field(ge=0)
-    globalCents: int = Field(gt=0)
-    fineThroughDay: int = Field(gt=0)
+    managerCapCents: int | None = Field(default=None, ge=0)
+    directorCapCents: int | None = Field(default=None, ge=0)
+    rentCents: int | None = Field(default=None, ge=0)
+    dailyDiscountCents: int | None = Field(default=None, ge=0)
+    globalCents: int | None = Field(default=None, gt=0)
+    fineThroughDay: int | None = Field(default=None, gt=0)
+    available: list[Literal["ferias", "inovacao", "locacao"]]
     calendar: Calendario
     citations: list[Citacao]

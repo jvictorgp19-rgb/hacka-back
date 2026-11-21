@@ -246,7 +246,8 @@ def responder(req: ChatRequest, sujeito: Sujeito, hoje: date | None = None) -> C
         rotulo = "⚡ Custo: R$ 0,00 (calculadora ou trecho citado, sem LLM)"
     else:
         custo = tokens / 1000 * cfg.llm_cost_per_1k_brl
-        rotulo = f"🧠 Custo: ~R$ {custo:.4f} (RAG + LLM local, {tokens} tokens)".replace(".", ",")
+        origem = "Amazon Bedrock" if cfg.llm_provider == "bedrock" else "LLM local"
+        rotulo = f"🧠 Custo: ~R$ {custo:.4f} (RAG + {origem}, {tokens} tokens)".replace(".", ",")
     visiveis = {d.tema for d in acervo.visiveis(acesso)}
     sugestoes = [s for t in [tema, *SUGESTOES] if t in visiveis for s in SUGESTOES[t]]
 
